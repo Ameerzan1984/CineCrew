@@ -183,7 +183,8 @@ Side-by-side videos against LTX-Studio on three representative cases
 
 [Jiaben Chen](mailto:jiabenchen@umass.edu)<sup>1\*</sup>, [Sixun Dong](https://github.com/Ironieser)<sup>1\*</sup>, Qinhong Zhou<sup>1</sup>, Raine Ma<sup>1</sup>, Zhiyang Dou<sup>2</sup>, Wojciech Matusik<sup>2</sup>, Chuang Gan<sup>1†</sup>
 
-<sup>1</sup> University of Massachusetts Amherst · <sup>2</sup> Massachusetts Institute of Technology · \* equal contribution · † corresponding author
+<sup>1</sup> University of Massachusetts Amherst · <sup>2</sup> Massachusetts Institute of Technology  
+\* equal contribution · † corresponding author
 
 Code maintained by Sixun Dong ([@Ironieser](https://github.com/Ironieser)).
 
