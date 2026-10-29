@@ -1,14 +1,13 @@
 # Development plan
 
-Current deliverable: preserve and fork CineCrew; provide a cinematic local web experience, a local film-service foundation, simulated provider contract, and a small FFmpeg assembly tool. These are not the complete platform requested.
+The current branch contains PostgreSQL-backed user sessions and owner-scoped film records, a trusted-gateway link to the film engine, CineCrew offline job planning, encrypted Higgsfield API credentials and a documented REST client, plus standalone PostgreSQL scheduling primitives. This is not the complete requested platform.
 
-Remaining work, in dependency order:
+Remaining work:
 
-1. Real identity, authorization, PostgreSQL schema/migrations, private object storage and secure deployment.
-2. Persisted social, search, watch, moderation, messaging and notifications with two-user isolation tests.
-3. Connect the web studio to a versioned film API and CineCrew FilmDSL; support real agent execution, durable checkpoints, continuity and asset manifests.
-4. Implement documented Higgsfield API/MCP operations with per-user secrets, consent, budgets and accurate accounting; test with authorized credentials.
-5. Build durable idempotent queues, fair contributor scheduling, retries, cancellation, withdrawal and cost ledger.
-6. Build safe media processing, timeline/audio/subtitles, HLS and explicit publishing. Test actual renders and playback.
-7. Complete Arabic RTL, light theme, accessibility, responsive and end-to-end testing; deploy with monitoring, backup, privacy, security review and operational runbooks.
-8. Validate long-form films against real provider limits, continuity, runtime and cost before making quality or duration claims.
+1. Implement and validate all social, collaborative and moderation workflows, including role-aware access and two-user tests beyond owner isolation.
+2. Connect real CineCrew generative agents to durable, resumable production jobs, Film Bible and versioned continuity; eliminate unsafe truncation for long projects.
+3. Wire documented Higgsfield operations to consent, spending limits, persistent handles and safe media storage; test a short real generation with authorized credentials. Verify standalone MCP OAuth registration before enabling it.
+4. Integrate the tested scheduler into authorized collaboration and real provider execution, with rate limiting, cost reconciliation and withdrawal.
+5. Implement media storage, editing, audio, subtitles, HLS, review and explicit publishing; test real playback and exports.
+6. Finish Arabic/English coverage, accessibility and responsive review; harden authentication, rate limiting, observability, backups, secrets, migrations and deployment.
+7. Test increasing film lengths and actual continuity, cost and failure recovery before claiming 60–120 minute support.

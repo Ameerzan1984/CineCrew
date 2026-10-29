@@ -1,5 +1,7 @@
 # Film engine
 
-The upstream CineCrew implementation is preserved under `src/`. Its FilmDSL (`src/schemas/blueprint.py`) represents a structured shot blueprint with linked assets. Its production pipeline requires configured models and has input truncation limits; it does not establish a verified 60–120 minute film workflow. Refer to the upstream README and AGENTS.md for actual operation.
+The upstream CineCrew implementation remains under `src/`. FilmDSL (`src/schemas/blueprint.py`) represents a structured shot blueprint with linked assets. Its generative pipeline requires configured models and has input truncation limits; it does not establish a verified 60–120 minute film workflow.
 
-`services/film-engine` is an experimental local service with mock stage checkpoints. These records do not constitute generated scripts, videos or verified production. It must not be confused with the original CineCrew pipeline. The service can validate and store imported CineCrew SceneBlueprint documents, but does not run CineCrew agents. Versioned continuity, resumable production jobs, and real model execution remain work for a later phase.
+`services/film-engine` stores offline checkpoints and imports valid CineCrew SceneBlueprint documents. Its production-plan endpoint calls the real CineCrew `ProductionOperatorAgent.build_from_blueprint` using an imported FilmDSL and asset library, then persists the resulting job specifications without submitting them. The separate checkpoint stages remain deterministic planning placeholders, not generated scripts or media. Real agent execution, continuity verification, provider job submission, storage and publication remain unimplemented.
+
+The engine is protected by a service token; a trusted gateway must authorize every user and project before forwarding requests. It is not safe to expose directly to untrusted clients.
