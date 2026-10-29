@@ -1,0 +1,7 @@
+# CineMesh architecture
+
+CineMesh is being developed on the Apache-2.0 CineCrew source in this repository. The upstream `src/`, configs, examples, attribution and license remain intact. The new web app lives in `apps/web`; the local film-service experiment lives in `services/film-engine`; provider contracts live in `packages/providers`; and a limited FFmpeg assembly utility lives in `services/render-worker`.
+
+The current implementation is a development foundation, not a production social network. The browser's demo state is separate from the film service unless explicitly connected; mock pipeline milestones are not AI-produced films. The provider package has no live Higgsfield connector. There is no authenticated multi-user isolation, distributed queue, durable production scheduler, publishing, or production billing. Do not expose the local service to untrusted networks.
+
+Target architecture: a Next.js client and API with server-side identity and authorization, PostgreSQL/Prisma for relational records, Redis-backed durable workers, isolated encrypted provider connections, object storage for private assets, and a Python service adapting CineCrew's validated FilmDSL. All cross-service operations need authenticated service identity, idempotency, audit events, retry policies, and ownership checks. Rendering should run in isolated workers with constrained file access. See DEVELOPMENT_PLAN.md for outstanding work.

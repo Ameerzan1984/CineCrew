@@ -1,0 +1,19 @@
+# Local development only. The film engine has no authentication; bind it to loopback.
+services:
+  film-engine:
+    build:
+      context: .
+      dockerfile: services/film-engine/Dockerfile
+    ports:
+      - "127.0.0.1:8001:8001"
+    volumes:
+      - film_data:/data
+  web:
+    build:
+      context: ./apps/web
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - film-engine
+volumes:
+  film_data:

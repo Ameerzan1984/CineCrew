@@ -219,3 +219,9 @@ Apache License 2.0 — see [LICENSE](LICENSE).
 [Overview](#-overview) · [Highlights](#-key-highlights) · [Architecture](#%EF%B8%8F-architecture) · [Install](#-installation--usage) · [Usage guide](docs/USAGE.md) · [Demo](#-demo--gallery) · [Citation](#-citation)
 
 </div>
+
+## CineMesh development
+
+This checkout also contains the initial CineMesh work. See `ARCHITECTURE.md`, `DEVELOPMENT_PLAN.md`, and `apps/web` and `services/film-engine` for its current scope and local setup. CineMesh is not yet a production-ready social network; mock generation is not a real provider integration. The original CineCrew documentation follows above and its license and attribution remain in place.
+
+Local setup: run `npm install` and `npm run dev` in `apps/web` for the browser interface. See `services/film-engine/README.md` for the separately operated API and OpenAPI documentation. `compose.yaml` provides a local-only container configuration; it has not been verified in this environment because Docker is unavailable. The browser demo currently uses local state and is not a connected multi-user backend.

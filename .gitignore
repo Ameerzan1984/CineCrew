@@ -45,3 +45,7 @@ env/
 !docs/**/*.css
 !docs/**/*.js
 !docs/**/*.html
+node_modules/
+.next/
+*.tsbuildinfo
+*.sqlite3
