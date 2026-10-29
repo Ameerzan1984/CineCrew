@@ -162,3 +162,4 @@ export class HiggsfieldProvider implements GenerationProvider {
   async getUsage(): Promise<ProviderUsage> { return this.unavailable(); }
   async getBalance(): Promise<ProviderBalance> { return this.unavailable(); }
 }
+export { HiggsfieldApiClient, HiggsfieldHttpError } from "./higgsfield-api.ts";
