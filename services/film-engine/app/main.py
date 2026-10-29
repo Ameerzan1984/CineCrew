@@ -5,14 +5,18 @@
 # Licensed under the Apache License, Version 2.0
 from contextlib import asynccontextmanager
 from pathlib import Path
+import hmac
+import os
 import sys
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 # Import CineCrew's actual schema from this monorepo, including in the image.
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from src.schemas.blueprint import SceneBlueprint
+from src.schemas.assets import AssetLibrary
 
 from . import storage
 from .models import AdvanceRequest, FilmCreate, FilmUpdate
@@ -27,6 +31,21 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="CineMesh Film Engine", version="0.1.0", lifespan=lifespan,
               description="Offline film production planning and checkpoint service. No actual media is generated.")
+
+
+@app.middleware("http")
+async def require_service_token(request: Request, call_next):
+    # The gateway authenticates users and checks ownership before using this
+    # service credential. This shared secret is not itself user authorization.
+    if request.url.path == "/health":
+        return await call_next(request)
+    configured = os.environ.get("FILM_ENGINE_SERVICE_TOKEN", "")
+    if not configured:
+        return JSONResponse({"detail": "Film engine service token is not configured"}, status_code=503)
+    supplied = request.headers.get("X-Cinemesh-Service-Token", "")
+    if not hmac.compare_digest(supplied.encode(), configured.encode()):
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    return await call_next(request)
 
 
 @app.get("/health")
@@ -95,6 +114,29 @@ def get_filmdsl(film_id: str):
     if blueprint is None:
         raise HTTPException(404, "No FilmDSL imported for this film")
     return blueprint
+
+
+@app.post("/films/{film_id}/production-plan")
+def build_production_plan(film_id: str, payload: dict):
+    """Build CineCrew job specifications offline; no provider jobs are submitted."""
+    get_film(film_id)
+    try:
+        assets = AssetLibrary.model_validate(payload)
+    except ValidationError as error:
+        raise HTTPException(422, detail=error.errors(include_context=False)) from error
+    try:
+        return storage.build_production_plan(film_id, assets)
+    except LookupError as error:
+        raise HTTPException(409, str(error)) from error
+
+
+@app.get("/films/{film_id}/production-plan")
+def get_production_plan(film_id: str):
+    get_film(film_id)
+    plan = storage.get_production_plan(film_id)
+    if plan is None:
+        raise HTTPException(404, "No production plan; import a blueprint and build one first")
+    return plan
 
 
 @app.post("/films/{film_id}/advance")

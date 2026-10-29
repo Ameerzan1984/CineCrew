@@ -4,6 +4,8 @@
 # Author: Sixun Dong
 # Licensed under the Apache License, Version 2.0
 from concurrent.futures import ThreadPoolExecutor
+import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,8 +16,17 @@ from app.main import app
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("CINEMESH_ENGINE_DB", str(tmp_path / "engine.db"))
+    monkeypatch.setenv("FILM_ENGINE_SERVICE_TOKEN", "test-internal-token")
     with TestClient(app) as test_client:
+        test_client.headers["X-Cinemesh-Service-Token"] = "test-internal-token"
         yield test_client
+
+
+def test_service_authentication_fails_closed(client, monkeypatch):
+    assert client.get("/health", headers={"X-Cinemesh-Service-Token": ""}).status_code == 200
+    assert client.get("/films", headers={"X-Cinemesh-Service-Token": "wrong"}).status_code == 401
+    monkeypatch.delenv("FILM_ENGINE_SERVICE_TOKEN")
+    assert client.get("/films").status_code == 503
 
 
 def make_film(client):
@@ -63,3 +74,20 @@ def test_filmdsl_import_validates_cinecrew_schema(client):
     saved = client.put(f"/films/{film_id}/filmdsl", json=blueprint)
     assert saved.status_code == 200
     assert client.get(f"/films/{film_id}/filmdsl").json() == saved.json()
+
+
+def test_cinecrew_builds_real_offline_job_plan(client):
+    root = Path(__file__).resolve().parents[3]
+    example = root / "examples" / "BetterCallSaul2" / "2026-03-05_07-58-36"
+    blueprint = json.loads((example / "shots" / "scene_blueprint_final.json").read_text(encoding="utf-8"))
+    assets = json.loads((example / "assets" / "asset_library.json").read_text(encoding="utf-8"))
+    film_id = make_film(client)
+    assert client.put(f"/films/{film_id}/filmdsl", json=blueprint).status_code == 200
+    response = client.post(f"/films/{film_id}/production-plan", json=assets)
+    assert response.status_code == 200, response.text
+    plan = response.json()
+    assert plan["mode"] == "cinecrew_offline_job_plan" and plan["submitted"] is False
+    assert len(plan["jobs"]["jobs"]) >= 4
+    assert client.get(f"/films/{film_id}/production-plan").json() == plan
+    assert client.put(f"/films/{film_id}/filmdsl", json=blueprint).status_code == 200
+    assert client.get(f"/films/{film_id}/production-plan").status_code == 404

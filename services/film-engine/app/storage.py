@@ -52,6 +52,10 @@ def init_db():
           film_id TEXT PRIMARY KEY REFERENCES films(id) ON DELETE CASCADE,
           data TEXT NOT NULL, updated_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS production_plans (
+          film_id TEXT PRIMARY KEY REFERENCES films(id) ON DELETE CASCADE,
+          data TEXT NOT NULL, updated_at TEXT NOT NULL
+        );
         """)
 
 
@@ -113,14 +117,43 @@ def checkpoints(film_id):
 
 def save_blueprint(film_id, data):
     with connection() as db:
+        db.execute("BEGIN IMMEDIATE")
         db.execute("INSERT INTO blueprints VALUES (?, ?, ?) ON CONFLICT(film_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
                    (film_id, json.dumps(data, ensure_ascii=False), now()))
+        db.execute("DELETE FROM production_plans WHERE film_id = ?", (film_id,))
         db.commit()
 
 
 def get_blueprint(film_id):
     with connection() as db:
         row = db.execute("SELECT data FROM blueprints WHERE film_id = ?", (film_id,)).fetchone()
+        return json.loads(row["data"]) if row else None
+
+
+def build_production_plan(film_id, asset_library):
+    # The upstream operator only builds job specifications: it does not call a provider.
+    from src.agents.production_operator import ProductionOperatorAgent
+    from src.schemas.blueprint import SceneBlueprint
+
+    with connection() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT data FROM blueprints WHERE film_id = ?", (film_id,)).fetchone()
+        if not row:
+            raise LookupError("Import a FilmDSL blueprint first")
+        blueprint = SceneBlueprint.model_validate_json(row["data"])
+        batch = ProductionOperatorAgent().build_from_blueprint(blueprint, asset_library)
+        result = {"mode": "cinecrew_offline_job_plan", "submitted": False,
+                  "jobs": batch.model_dump(mode="json"),
+                  "blueprint": blueprint.model_dump(mode="json")}
+        db.execute("INSERT INTO production_plans VALUES (?, ?, ?) ON CONFLICT(film_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+                   (film_id, json.dumps(result, ensure_ascii=False), now()))
+        db.commit()
+    return result
+
+
+def get_production_plan(film_id):
+    with connection() as db:
+        row = db.execute("SELECT data FROM production_plans WHERE film_id = ?", (film_id,)).fetchone()
         return json.loads(row["data"]) if row else None
 
 
