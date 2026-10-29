@@ -21,6 +21,17 @@ services:
       FILM_ENGINE_SERVICE_TOKEN: ${FILM_ENGINE_SERVICE_TOKEN:?Set FILM_ENGINE_SERVICE_TOKEN}
     volumes:
       - film_data:/data
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    command: ["npm", "run", "db:migrate"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL with host postgres}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
   web:
     build:
       context: .
@@ -31,11 +42,12 @@ services:
       FILM_ENGINE_SERVICE_TOKEN: ${FILM_ENGINE_SERVICE_TOKEN:?Set FILM_ENGINE_SERVICE_TOKEN}
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
       HIGGSFIELD_VAULT_KEY: ${HIGGSFIELD_VAULT_KEY:-}
+      CHATGPT_VAULT_KEY: ${CHATGPT_VAULT_KEY:-}
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       film-engine:
         condition: service_started
 volumes:

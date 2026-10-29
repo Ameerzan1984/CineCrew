@@ -14,6 +14,7 @@ import instructor
 from openai import AzureOpenAI, OpenAI
 from ..config import Config
 from .types import LLMResult, TokenUsage
+from .chatgpt_plan import ChatGPTPlanClient, current_chatgpt_plan_session
 
 
 def get_llm_client():
@@ -25,6 +26,9 @@ def get_llm_client():
     OpenAI (then `LLM_BASE_URL` is the resource endpoint and `LLM_MODEL` the deployment).
     `instructor` in JSON mode turns Pydantic schemas into validated responses.
     """
+    plan_session = current_chatgpt_plan_session()
+    if plan_session:
+        return ChatGPTPlanClient(plan_session[0], plan_session[1], timeout=Config.LLM_TIMEOUT)
     if not Config.LLM_API_KEY:
         raise RuntimeError(
             "No LLM API key configured. Set LLM_API_KEY (or OPENAI_API_KEY) in your "
@@ -79,6 +83,8 @@ def generate_structured_data(
     used by the VLM visual judge.
     """
     start = time.perf_counter()
+    if isinstance(client, ChatGPTPlanClient):
+        return client.generate_structured(model_class, system_prompt, user_content, model=model, images=images)
     if images:
         user_msg = {"role": "user", "content": [{"type": "text", "text": user_content}, *map(_image_part, images)]}
     else:

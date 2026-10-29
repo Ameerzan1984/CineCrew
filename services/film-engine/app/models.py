@@ -27,3 +27,8 @@ class FilmUpdate(BaseModel):
     premise: str | None = Field(default=None, min_length=1, max_length=4000)
     genre: str | None = Field(default=None, max_length=80)
     visual_style: str | None = Field(default=None, max_length=160)
+
+
+class StoryEditorRunRequest(BaseModel):
+    run_id: str = Field(pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+    script_segment: str = Field(min_length=20, max_length=20000)

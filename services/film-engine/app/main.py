@@ -9,7 +9,7 @@ import hmac
 import os
 import sys
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
@@ -19,7 +19,7 @@ from src.schemas.blueprint import SceneBlueprint
 from src.schemas.assets import AssetLibrary
 
 from . import storage
-from .models import AdvanceRequest, FilmCreate, FilmUpdate
+from .models import AdvanceRequest, FilmCreate, FilmUpdate, StoryEditorRunRequest
 from .pipeline import STAGES
 
 
@@ -161,3 +161,39 @@ def run_film(film_id: str):
             break
         film = get_film(film_id)
     return {"film": get_film(film_id), "checkpoints": storage.checkpoints(film_id)}
+
+
+@app.post("/films/{film_id}/cinecrew/story-editor")
+def run_cinecrew_story_editor(
+    film_id: str,
+    payload: StoryEditorRunRequest,
+    access_token: str = Header(default="", alias="X-ChatGPT-Plan-Access-Token"),
+    model: str = Header(default="", alias="X-ChatGPT-Plan-Model"),
+):
+    """Run the real CineCrew ArtDepartment and StoryEditor against an approved scene excerpt."""
+    if len(access_token) < 32 or len(access_token) > 8192:
+        raise HTTPException(401, "A connected ChatGPT plan is required")
+    if not model or len(model) > 160:
+        raise HTTPException(400, "Select a model from the connected ChatGPT account")
+    get_film(film_id)
+    try:
+        result = storage.run_story_editor(film_id, payload.run_id.lower(), payload.script_segment, access_token, model)
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
+    except Exception as error:
+        # Provider exception details can contain request data; keep them in local agent traces only.
+        raise HTTPException(502, "CineCrew agent failed. Check the ChatGPT connection and retry the run.") from error
+    if result["status"] == "running":
+        raise HTTPException(409, detail={"message": "This run is already in progress", "run_id": payload.run_id})
+    return result
+
+
+@app.get("/films/{film_id}/cinecrew/runs/{run_id}")
+def get_cinecrew_run(film_id: str, run_id: str):
+    get_film(film_id)
+    result = storage.get_agent_run(film_id, run_id.lower())
+    if result is None:
+        raise HTTPException(404, "Agent run not found")
+    return result

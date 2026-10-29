@@ -9,6 +9,7 @@ Configure these server environment variables without committing secrets:
 - `FILM_ENGINE_SERVICE_TOKEN`: the strong secret also configured on the engine.
 - `APP_ORIGIN`: exact browser origin, such as the scheme and host. Required in production, and must match the configured public HTTPS origin when running behind a reverse proxy. For a local HTTP test, explicitly use a loopback origin such as `http://127.0.0.1:3000`.
 - `HIGGSFIELD_VAULT_KEY`: base64-encoded 32-byte key for encrypted API credentials. Back this up separately from the database. Changing it without re-encrypting stored records makes those credentials unreadable.
+- `CHATGPT_VAULT_KEY`: a separate base64-encoded 32-byte key for per-user ChatGPT OAuth tokens. If omitted, the local adapter can use `HIGGSFIELD_VAULT_KEY`; prefer a dedicated key and keep it outside Git.
 
 ```sh
 npm install
@@ -16,9 +17,13 @@ npm run db:migrate
 npm run dev
 ```
 
+For the local container stack on Windows, run `.\apps\web\scripts\init-local-compose-env.ps1` from the repository root, then `docker compose up --build -d`. The script creates fresh local database, service-authentication, and vault secrets in the Git-ignored `.env` file and never prints their values. The Compose migration service applies database migrations before the web app starts. Docker Desktop must be installed and running.
+
 Production cookies are Secure unless `APP_ORIGIN` explicitly names a loopback HTTP origin. Use HTTPS for non-loopback deployments. Keep the engine private; configure durable storage and backups for both PostgreSQL and the engine's SQLite directory. The engine link creates a separate engine record and cannot commit atomically with PostgreSQL, so a network failure after creation may leave an orphan and requires reconciliation before retrying. Advance requests use idempotency keys; the browser retains an outstanding key in session storage across reloads of the same tab.
 
 Higgsfield API credentials are encrypted and saving them does not verify the connection. Verification requires a successful status lookup for an existing API request ID; the UI displays the last verification time. Standalone MCP OAuth registration has not been verified. The adapter does not yet supply a generation queue, model catalog, or credits. Engine planning stages are simulated and do not produce video; imported FilmDSL and an Asset Library can build an offline job plan. Film publication, watch playback, comments, likes, and generation workflows are not yet implemented.
+
+The optional ChatGPT-plan connection uses OpenAI's current open-source Sign in with ChatGPT flow. It requires a separate user consent for plan usage, makes Responses API calls with `store:false`, and does not access ChatGPT conversation history or use Higgsfield credits. The local development callback is fixed to `http://127.0.0.1:3000/api/connections/chatgpt/callback`; open CineMesh at `http://localhost:3000` or `http://127.0.0.1:3000`. This preview flow is intended for local open-source testing and must not be exposed as a remote or paid integration unless OpenAI approves that use. The first real CineCrew vertical slice runs Art Department and Story Editor, saves a Film Bible/asset library and FilmDSL, and checkpoints the run in the film engine. It does not generate video or submit Higgsfield jobs. ChatGPT plan usage is shared with the account and must be tested explicitly in Connections.
 
 Run `npm run build` and `npm run lint` for production build and TypeScript checks. For integration tests, start the web app and engine with a **disposable** PostgreSQL database, run migrations, set `HIGGSFIELD_VAULT_KEY`, and set `CINEMESH_TEST_URL` to the app's loopback HTTP origin (including port); then run `npm run test:integration`. The test creates disposable accounts and records and submits only dummy provider credentials. Do not point it at a production database.
 
