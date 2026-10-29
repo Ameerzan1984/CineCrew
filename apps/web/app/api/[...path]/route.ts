@@ -70,7 +70,14 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
     if (!user) return error("Sign in required", 401);
     if (path[0] === "films" && path.length === 1) {
       if (method === "GET") {
-        const result = await db.query("SELECT id,title,premise,genre,duration_minutes,language,visual_style,mode,status,engine_film_id,updated_at FROM films WHERE owner_id=$1 ORDER BY updated_at DESC", [user.id]);
+        const result = await db.query(
+          `SELECT f.id,f.title,f.premise,f.genre,f.duration_minutes,f.language,f.visual_style,f.mode,f.status,f.engine_film_id,f.updated_at,
+                  CASE WHEN f.owner_id=$1 THEN 'owner' ELSE c.role END AS my_role,
+                  owner.display_name AS owner_display_name
+           FROM films f JOIN users owner ON owner.id=f.owner_id
+           LEFT JOIN film_contributors c ON c.film_id=f.id AND c.user_id=$1
+           WHERE f.owner_id=$1 OR c.user_id=$1
+           ORDER BY f.updated_at DESC`, [user.id]);
         return json({ films: result.rows });
       }
       if (method === "POST") {
@@ -83,11 +90,18 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
       }
     }
     if (path[0] === "films" && path[1] && uuid.test(path[1])) {
-      const result = await db.query("SELECT id,title,premise,genre,duration_minutes,language,visual_style,mode,status,engine_film_id,updated_at FROM films WHERE id=$1 AND owner_id=$2", [path[1],user.id]);
+      const result = await db.query(
+        `SELECT f.id,f.title,f.premise,f.genre,f.duration_minutes,f.language,f.visual_style,f.mode,f.status,f.engine_film_id,f.updated_at,
+                CASE WHEN f.owner_id=$2 THEN 'owner' ELSE c.role END AS my_role,
+                owner.display_name AS owner_display_name
+         FROM films f JOIN users owner ON owner.id=f.owner_id
+         LEFT JOIN film_contributors c ON c.film_id=f.id AND c.user_id=$2
+         WHERE f.id=$1 AND (f.owner_id=$2 OR c.user_id=$2)`, [path[1],user.id]);
       const film = result.rows[0];
       if (!film) return error("Film not found",404);
       if (path.length === 2 && method === "GET") return json(film);
       if (path[2] === "engine" && path[3] === "connect" && method === "POST") {
+        if (film.my_role !== "owner") return error("Film not found",404);
         // Serialize simultaneous link attempts for this film. External creation cannot
         // be atomic with PostgreSQL; uncertain network outcomes require reconciliation.
         const client = await db.connect();
@@ -112,6 +126,7 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
         if (!film.engine_film_id) return error("Film is not linked to the engine",409);
         const remotePath = `/films/${encodeURIComponent(film.engine_film_id)}/${path[3]}`;
         if (method === "GET") return json(await engine(remotePath));
+        if (film.my_role !== "owner") return error("Film not found",404);
         if ((path[3] === "filmdsl" && method === "PUT") || (path[3] === "production-plan" && method === "POST")) {
           const payload = await body(request);
           if (!payload || typeof payload !== "object" || Array.isArray(payload)) return error("Expected a JSON object", 400);
@@ -119,6 +134,7 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
         }
       }
       if (path[2] === "engine" && path[3] === "advance" && method === "POST") {
+        if (film.my_role !== "owner") return error("Film not found",404);
         if (!film.engine_film_id) return error("Film is not linked to the engine",409);
         const input = await body(request);
         if (typeof input.idempotency_key !== "string" || !uuid.test(input.idempotency_key)) return error("A valid idempotency key is required",400);

@@ -26,11 +26,13 @@ export default function CineCrewAgentRun({
   filmId,
   ar,
   linked,
+  canRunAgents,
   onComplete,
 }: {
   filmId: string;
   ar: boolean;
   linked: boolean;
+  canRunAgents: boolean;
   onComplete: () => void;
 }) {
   const [script, setScript] = useState("");
@@ -159,6 +161,7 @@ export default function CineCrewAgentRun({
         </p>
       )}
 
+      {!canRunAgents && <p className="connection-note">{ar ? "صلاحية المشاهد لا تسمح بتشغيل الوكيل." : "Viewer access does not allow running film agents."}</p>}
       <form className="agent-run-form" onSubmit={runAgent}>
         <label>
           {ar ? "السيناريو أو مشهد قصير" : "Screenplay or short scene"}
@@ -170,18 +173,18 @@ export default function CineCrewAgentRun({
             value={script}
             onChange={(event) => setScript(event.target.value)}
             placeholder={ar ? "اكتب مشهدًا يتضمن وصفًا أو حوارًا..." : "Paste a scene with action and, if relevant, dialogue..."}
-            disabled={!linked}
+            disabled={!linked || !canRunAgents}
           />
         </label>
         <div className="agent-run-controls">
-          <select aria-label={ar ? "النموذج" : "Model"} value={model} onChange={(event) => setModel(event.target.value)} disabled={!linked}>
+          <select aria-label={ar ? "النموذج" : "Model"} value={model} onChange={(event) => setModel(event.target.value)} disabled={!linked || !canRunAgents}>
             <option value="">{ar ? "حمّل النماذج المتاحة" : "Load your available models"}</option>
             {models.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
-          <button type="button" className="outline-button" disabled={busy || !connected || !linked} onClick={refreshModels}>
+          <button type="button" className="outline-button" disabled={busy || !connected || !linked || !canRunAgents} onClick={refreshModels}>
             {ar ? "تحديث النماذج" : "Refresh models"}
           </button>
-          <button className="primary-button" disabled={busy || !connected || !linked || !model}>
+          <button className="primary-button" disabled={busy || !connected || !linked || !canRunAgents || !model}>
             {busy ? ar ? "جارٍ التشغيل..." : "Running agents..." : ar ? "إنشاء مرجع الفيلم واللقطات" : "Build Film Bible and shots"}
           </button>
         </div>
@@ -212,7 +215,7 @@ export default function CineCrewAgentRun({
       <p className="connection-note">
         {ar
           ? "يستهلك هذا التشغيل من استخدام خطة ChatGPT المشتركة. ينشئ أصولًا ولقطات فقط؛ لا يولّد فيديو."
-          : "This run uses your shared ChatGPT plan allowance. It builds assets and shots only; it does not generate video."}
+          : "Saved team shot contributions are included automatically. This run builds a Film Bible and FilmDSL only; it does not generate or assemble video."}
       </p>
       {error && <p role="alert">{error}</p>}
     </section>

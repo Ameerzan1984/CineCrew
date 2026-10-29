@@ -4,7 +4,7 @@ The current branch contains PostgreSQL-backed user sessions and owner-scoped fil
 
 Remaining work:
 
-1. Implement and validate all social, collaborative and moderation workflows, including role-aware access and two-user tests beyond owner isolation.
+1. Finish social and moderation workflows. A first collaborative storyboard slice now supports pending in-app invitations, accepted editor/viewer roles, attributed shot contributions and agent input assembled from saved team shots; the two-user PostgreSQL integration test covers the intended access boundaries but still needs to run on a disposable database.
 2. Connect real CineCrew generative agents to durable, resumable production jobs, Film Bible and versioned continuity; eliminate unsafe truncation for long projects.
 3. Wire documented Higgsfield operations to consent, spending limits, persistent handles and safe media storage; test a short real generation with authorized credentials. Verify standalone MCP OAuth registration before enabling it.
 4. Integrate the tested scheduler into authorized collaboration and real provider execution, with rate limiting, cost reconciliation and withdrawal.

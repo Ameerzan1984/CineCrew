@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "tsc --noEmit",
     "db:migrate": "node scripts/migrate.cjs",
+    "test:unit": "node --test test/*.test.ts",
     "test:integration": "node test/integration.cjs"
   },
   "dependencies": {

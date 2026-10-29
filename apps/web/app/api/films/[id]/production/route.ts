@@ -13,10 +13,18 @@ type Context = { params: Promise<{ id: string }> };
 const validText = (value: unknown, max: number, required = false): value is string =>
   typeof value === "string" && value.length <= max && (!required || !!value.trim());
 
-async function contents(client: PoolClient, filmId: string) {
-  const scenes = await client.query("SELECT id,position,title,description FROM scenes WHERE film_id=$1 ORDER BY position", [filmId]);
+async function contents(client: PoolClient, filmId: string, userId: string, isOwner: boolean) {
+  const scenes = await client.query(
+    `SELECT s.id,s.position,s.title,s.description,s.created_by,u.display_name AS creator_name,(s.created_by=$2) AS mine
+     FROM scenes s LEFT JOIN users u ON u.id=s.created_by WHERE s.film_id=$1 ORDER BY s.position`, [filmId,userId]);
   const characters = await client.query("SELECT id,name,description,asset_id FROM characters WHERE film_id=$1 ORDER BY name,id", [filmId]);
-  return { scenes: scenes.rows, characters: characters.rows };
+  const collaborators = await client.query(
+    `SELECT c.user_id,c.role,c.created_at,u.display_name FROM film_contributors c
+     JOIN users u ON u.id=c.user_id WHERE c.film_id=$1 ORDER BY u.display_name`, [filmId]);
+  const invitations = isOwner ? await client.query(
+    `SELECT i.user_id,i.role,i.created_at,u.display_name FROM film_invitations i
+     JOIN users u ON u.id=i.user_id WHERE i.film_id=$1 AND i.status='pending' ORDER BY i.created_at`, [filmId]) : { rows: [] };
+  return { scenes: scenes.rows, characters: characters.rows, collaborators: collaborators.rows, invitations: invitations.rows };
 }
 
 export async function GET(_request: NextRequest, context: Context) {
@@ -27,14 +35,13 @@ export async function GET(_request: NextRequest, context: Context) {
     if (!uuid.test(id)) return json({ error: "Film not found" }, 404);
     const client = await database().connect();
     try {
-      await client.query("BEGIN");
-      const film = await client.query("SELECT id FROM films WHERE id=$1 AND owner_id=$2 FOR SHARE", [id, user.id]);
-      if (!film.rowCount) { await client.query("ROLLBACK"); return json({ error: "Film not found" }, 404); }
-      const result = await contents(client, id);
-      await client.query("COMMIT");
-      return json(result);
-    } catch (error) { await client.query("ROLLBACK"); throw error; }
-    finally { client.release(); }
+      const access = await client.query(
+        `SELECT CASE WHEN f.owner_id=$2 THEN 'owner' ELSE c.role END AS role
+         FROM films f LEFT JOIN film_contributors c ON c.film_id=f.id AND c.user_id=$2
+         WHERE f.id=$1 AND (f.owner_id=$2 OR c.user_id=$2)`, [id, user.id]);
+      if (!access.rowCount) return json({ error: "Film not found" }, 404);
+      return json({ ...(await contents(client, id, user.id, access.rows[0].role === "owner")), role: access.rows[0].role });
+    } finally { client.release(); }
   } catch { return json({ error: "Production data unavailable" }, 503); }
 }
 
@@ -59,18 +66,29 @@ export async function POST(request: NextRequest, context: Context) {
     try {
       await client.query("BEGIN");
       // The lock serializes edits and ensures every operation is scoped to the authenticated owner.
-      const film = await client.query("SELECT id FROM films WHERE id=$1 AND owner_id=$2 FOR UPDATE", [filmId, user.id]);
+      const film = await client.query(
+        `SELECT f.owner_id,CASE WHEN f.owner_id=$2 THEN 'owner' ELSE c.role END AS role
+         FROM films f LEFT JOIN film_contributors c ON c.film_id=f.id AND c.user_id=$2
+         WHERE f.id=$1 AND (f.owner_id=$2 OR c.user_id=$2) FOR UPDATE OF f`, [filmId, user.id]);
       if (!film.rowCount) { await client.query("ROLLBACK"); return json({ error: "Film not found" }, 404); }
+      const isOwner = film.rows[0].owner_id === user.id;
+      const isEditor = isOwner || film.rows[0].role === "editor";
+      if (!isEditor) { await client.query("ROLLBACK"); return json({ error: "Editor access required" }, 403); }
+      if (!isOwner && action.endsWith("character")) { await client.query("ROLLBACK"); return json({ error: "Only the film owner can edit characters" }, 403); }
       let changed;
-      if (action === "create_scene") changed = await client.query("INSERT INTO scenes(id,film_id,position,title,description) VALUES($1,$2,$3,$4,$5)", [randomUUID(), filmId, data.position, data.title.trim(), data.description]);
-      else if (action === "update_scene") changed = await client.query("UPDATE scenes SET position=$1,title=$2,description=$3 WHERE id=$4 AND film_id=$5", [data.position, data.title.trim(), data.description, data.id, filmId]);
-      else if (action === "delete_scene") changed = await client.query("DELETE FROM scenes WHERE id=$1 AND film_id=$2", [data.id, filmId]);
+      if (action === "create_scene") changed = await client.query("INSERT INTO scenes(id,film_id,position,title,description,created_by) VALUES($1,$2,$3,$4,$5,$6)", [randomUUID(), filmId, data.position, data.title.trim(), data.description, user.id]);
+      else if (action === "update_scene") changed = isOwner
+        ? await client.query("UPDATE scenes SET position=$1,title=$2,description=$3 WHERE id=$4 AND film_id=$5", [data.position, data.title.trim(), data.description, data.id, filmId])
+        : await client.query("UPDATE scenes SET position=$1,title=$2,description=$3 WHERE id=$4 AND film_id=$5 AND created_by=$6", [data.position, data.title.trim(), data.description, data.id, filmId, user.id]);
+      else if (action === "delete_scene") changed = isOwner
+        ? await client.query("DELETE FROM scenes WHERE id=$1 AND film_id=$2", [data.id, filmId])
+        : await client.query("DELETE FROM scenes WHERE id=$1 AND film_id=$2 AND created_by=$3", [data.id, filmId, user.id]);
       else if (action === "create_character") changed = await client.query("INSERT INTO characters(id,film_id,name,description,asset_id) VALUES($1,$2,$3,$4,$5)", [randomUUID(), filmId, data.name.trim(), data.description, data.asset_id?.trim() ?? null]);
       else if (action === "update_character") changed = await client.query("UPDATE characters SET name=$1,description=$2,asset_id=$3 WHERE id=$4 AND film_id=$5", [data.name.trim(), data.description, data.asset_id?.trim() ?? null, data.id, filmId]);
       else changed = await client.query("DELETE FROM characters WHERE id=$1 AND film_id=$2", [data.id, filmId]);
       if (!changed.rowCount) { await client.query("ROLLBACK"); return json({ error: "Item not found" }, 404); }
       await client.query("UPDATE films SET updated_at=now() WHERE id=$1", [filmId]);
-      const result = await contents(client, filmId);
+      const result = await contents(client, filmId, user.id, isOwner);
       await client.query("COMMIT");
       return json(result, action.startsWith("create_") ? 201 : 200);
     } catch (error) { await client.query("ROLLBACK"); throw error; }
