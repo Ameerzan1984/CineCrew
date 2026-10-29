@@ -1,0 +1,60 @@
+// Run only against an explicitly configured disposable CineMesh database and local engine.
+const crypto = require("node:crypto");
+const assert = require("node:assert/strict");
+const base = process.env.CINEMESH_TEST_URL;
+if (!base || !/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(base)) throw Error("Set CINEMESH_TEST_URL to a local test app backed by a disposable database");
+async function request(path, method = "GET", data, cookie, origin = base) {
+  const response = await fetch(`${base}/api/${path}`, { method, headers: { origin, ...(cookie ? { cookie } : {}), ...(data ? { "content-type": "application/json" } : {}) }, body: data ? JSON.stringify(data) : undefined });
+  return { status: response.status, body: await response.json(), cookie: response.headers.get("set-cookie")?.split(";")[0] };
+}
+async function main() {
+  const suffix = crypto.randomBytes(8).toString("hex");
+  const emailA = `alice-${suffix}@example.test`, emailB = `bob-${suffix}@example.test`;
+  const password = "disposable-test-password-123";
+  const a = await request("auth/register", "POST", { name: "Alice", email: emailA, password });
+  const b = await request("auth/register", "POST", { name: "Bob", email: emailB, password });
+  assert.equal(a.status, 201); assert.ok(a.cookie); assert.equal(b.status, 201); assert.ok(b.cookie);
+  assert.equal((await request("films")).status, 401);
+  const directory = await request(`community?q=${encodeURIComponent("Bob")}`, "GET", undefined, a.cookie);
+  assert.equal(directory.status, 200); const person = directory.body.users.find(u => u.id === b.body.id); assert.ok(person); assert.equal(person.following, false); assert.equal("email" in person, false);
+  assert.equal((await request("community", "POST", { action: "follow", userId: b.body.id }, a.cookie)).status, 200);
+  assert.equal((await request("community", "POST", { action: "follow", userId: b.body.id }, a.cookie)).status, 200);
+  const followed = await request("community?q=Bob", "GET", undefined, a.cookie); assert.equal(followed.body.users.find(u => u.id === b.body.id).following, true);
+  assert.equal((await request("community", "POST", { action: "follow", userId: a.body.id }, a.cookie)).status, 400);
+  assert.equal((await request("community", "POST", { action: "unfollow", userId: b.body.id }, a.cookie)).status, 200);
+  const film = await request("films", "POST", { title: "Private", premise: "A project", genre: "Drama", duration_minutes: 5 }, a.cookie);
+  assert.equal(film.status, 201); const id = film.body.id;
+  assert.equal((await request(`films/${id}`, "GET", undefined, b.cookie)).status, 404);
+  assert.equal((await request("films", "POST", { title: "x" }, a.cookie, "https://attacker.example")).status, 403);
+  assert.equal((await request(`films/${id}/engine/connect`, "POST", {}, a.cookie)).status, 200);
+  const key = crypto.randomUUID();
+  assert.equal((await request(`films/${id}/engine/advance`, "POST", { idempotency_key: key }, a.cookie)).status, 200);
+  assert.equal((await request(`films/${id}/engine/advance`, "POST", { idempotency_key: key }, a.cookie)).status, 200);
+  const checkpoints = await request(`films/${id}/engine/checkpoints`, "GET", undefined, a.cookie);
+  assert.equal(checkpoints.status, 200); assert.equal(checkpoints.body.length, 1);
+  const endpoint = `films/${id}/production`;
+  const scene = await request(endpoint, "POST", { action: "create_scene", position: 1, title: "Opening", description: "Scene" }, a.cookie);
+  assert.equal(scene.status, 201); const sceneId = scene.body.scenes[0].id;
+  assert.equal((await request(endpoint, "POST", { action: "create_scene", position: 1, title: "Duplicate", description: "" }, a.cookie)).status, 409);
+  const character = await request(endpoint, "POST", { action: "create_character", name: "A", description: "", asset_id: null }, a.cookie);
+  assert.equal(character.status, 201); const characterId = character.body.characters[0].id;
+  assert.equal((await request(endpoint, "GET", undefined, b.cookie)).status, 404);
+  const edited = await request(endpoint, "POST", { action: "update_scene", id: sceneId, position: 2, title: "Edited", description: "" }, a.cookie);
+  assert.equal(edited.body.scenes[0].title, "Edited");
+  const deleted = await request(endpoint, "POST", { action: "delete_character", id: characterId }, a.cookie);
+  assert.equal(deleted.body.characters.length, 0);
+  const saved = await request("connections", "POST", { action: "save", keyId: "dummy-id", keySecret: "dummy-secret" }, a.cookie);
+  assert.equal(saved.status, 200); assert.equal(saved.body.api.verified, false);
+  const otherConnection = await request("connections", "GET", undefined, b.cookie);
+  assert.equal(otherConnection.body.api.configured, false);
+  const login = await request("auth/login", "POST", { email: emailA, password }); assert.equal(login.status, 200);
+  const films = await request("films", "GET", undefined, login.cookie); assert.ok(films.body.films.some(f => f.id === id));
+  const failedLogins = await Promise.all(Array.from({length: 12}, () => request("auth/login", "POST", { email: emailB, password: "wrong-test-password" })));
+  assert.equal(failedLogins.filter(x => x.status === 401).length, 10);
+  assert.equal(failedLogins.filter(x => x.status === 429).length, 2);
+  assert.equal((await request("auth/login", "POST", { email: emailB, password })).status, 429);
+  assert.equal((await request("auth/logout", "POST", {}, a.cookie)).status, 200);
+  assert.equal((await request("films", "GET", undefined, a.cookie)).status, 401);
+  console.log("PASS: auth, user isolation, CSRF, cross-session persistence, engine retries, scene/character CRUD, follows and provider vault isolation");
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

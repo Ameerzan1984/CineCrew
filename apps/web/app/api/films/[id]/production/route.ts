@@ -1,0 +1,83 @@
+import { randomUUID } from "node:crypto";
+import { NextRequest, NextResponse } from "next/server";
+import { currentUser } from "../../../../../lib/auth";
+import { database } from "../../../../../lib/db";
+import { allowedOrigin } from "../../../../../lib/origin";
+import type { PoolClient } from "pg";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const json = (value: unknown, status = 200) => NextResponse.json(value, { status, headers: { "Cache-Control": "no-store" } });
+type Context = { params: Promise<{ id: string }> };
+const validText = (value: unknown, max: number, required = false): value is string =>
+  typeof value === "string" && value.length <= max && (!required || !!value.trim());
+
+async function contents(client: PoolClient, filmId: string) {
+  const scenes = await client.query("SELECT id,position,title,description FROM scenes WHERE film_id=$1 ORDER BY position", [filmId]);
+  const characters = await client.query("SELECT id,name,description,asset_id FROM characters WHERE film_id=$1 ORDER BY name,id", [filmId]);
+  return { scenes: scenes.rows, characters: characters.rows };
+}
+
+export async function GET(_request: NextRequest, context: Context) {
+  try {
+    const user = await currentUser();
+    if (!user) return json({ error: "Sign in required" }, 401);
+    const { id } = await context.params;
+    if (!uuid.test(id)) return json({ error: "Film not found" }, 404);
+    const client = await database().connect();
+    try {
+      await client.query("BEGIN");
+      const film = await client.query("SELECT id FROM films WHERE id=$1 AND owner_id=$2 FOR SHARE", [id, user.id]);
+      if (!film.rowCount) { await client.query("ROLLBACK"); return json({ error: "Film not found" }, 404); }
+      const result = await contents(client, id);
+      await client.query("COMMIT");
+      return json(result);
+    } catch (error) { await client.query("ROLLBACK"); throw error; }
+    finally { client.release(); }
+  } catch { return json({ error: "Production data unavailable" }, 503); }
+}
+
+export async function POST(request: NextRequest, context: Context) {
+  if (!allowedOrigin(request.headers.get("origin"), request.nextUrl.origin)) return json({ error: "Invalid request origin" }, 403);
+  try {
+    const user = await currentUser();
+    if (!user) return json({ error: "Sign in required" }, 401);
+    const { id: filmId } = await context.params;
+    if (!uuid.test(filmId)) return json({ error: "Film not found" }, 404);
+    const raw = await request.text();
+    if (raw.length > 16384) return json({ error: "Request too large" }, 413);
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== "object" || Array.isArray(data) || typeof data.action !== "string") return json({ error: "Invalid request" }, 400);
+    const action = data.action as string;
+    const actions = ["create_scene", "update_scene", "delete_scene", "create_character", "update_character", "delete_character"];
+    if (!actions.includes(action)) return json({ error: "Unknown action" }, 400);
+    if (!action.startsWith("create_") && (typeof data.id !== "string" || !uuid.test(data.id))) return json({ error: "Invalid item ID" }, 400);
+    if (action.endsWith("scene") && !action.startsWith("delete_") && (!Number.isInteger(data.position) || data.position < 0 || data.position > 100000 || !validText(data.title, 160, true) || !validText(data.description, 4000))) return json({ error: "Invalid scene fields" }, 400);
+    if (action.endsWith("character") && !action.startsWith("delete_") && (!validText(data.name, 160, true) || !validText(data.description, 4000) || !(data.asset_id === null || data.asset_id === undefined || validText(data.asset_id, 160, true)))) return json({ error: "Invalid character fields" }, 400);
+    const client = await database().connect();
+    try {
+      await client.query("BEGIN");
+      // The lock serializes edits and ensures every operation is scoped to the authenticated owner.
+      const film = await client.query("SELECT id FROM films WHERE id=$1 AND owner_id=$2 FOR UPDATE", [filmId, user.id]);
+      if (!film.rowCount) { await client.query("ROLLBACK"); return json({ error: "Film not found" }, 404); }
+      let changed;
+      if (action === "create_scene") changed = await client.query("INSERT INTO scenes(id,film_id,position,title,description) VALUES($1,$2,$3,$4,$5)", [randomUUID(), filmId, data.position, data.title.trim(), data.description]);
+      else if (action === "update_scene") changed = await client.query("UPDATE scenes SET position=$1,title=$2,description=$3 WHERE id=$4 AND film_id=$5", [data.position, data.title.trim(), data.description, data.id, filmId]);
+      else if (action === "delete_scene") changed = await client.query("DELETE FROM scenes WHERE id=$1 AND film_id=$2", [data.id, filmId]);
+      else if (action === "create_character") changed = await client.query("INSERT INTO characters(id,film_id,name,description,asset_id) VALUES($1,$2,$3,$4,$5)", [randomUUID(), filmId, data.name.trim(), data.description, data.asset_id?.trim() ?? null]);
+      else if (action === "update_character") changed = await client.query("UPDATE characters SET name=$1,description=$2,asset_id=$3 WHERE id=$4 AND film_id=$5", [data.name.trim(), data.description, data.asset_id?.trim() ?? null, data.id, filmId]);
+      else changed = await client.query("DELETE FROM characters WHERE id=$1 AND film_id=$2", [data.id, filmId]);
+      if (!changed.rowCount) { await client.query("ROLLBACK"); return json({ error: "Item not found" }, 404); }
+      await client.query("UPDATE films SET updated_at=now() WHERE id=$1", [filmId]);
+      const result = await contents(client, filmId);
+      await client.query("COMMIT");
+      return json(result, action.startsWith("create_") ? 201 : 200);
+    } catch (error) { await client.query("ROLLBACK"); throw error; }
+    finally { client.release(); }
+  } catch (error) {
+    if (error instanceof SyntaxError) return json({ error: "Invalid JSON" }, 400);
+    if ((error as { code?: string })?.code === "23505") return json({ error: "Scene position or character asset ID already exists" }, 409);
+    return json({ error: "Production data unavailable" }, 503);
+  }
+}

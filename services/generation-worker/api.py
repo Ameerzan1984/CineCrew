@@ -60,6 +60,11 @@ async def permission_error(_request, _error):
     return JSONResponse({'detail': 'Resource unavailable'}, status_code=403)
 
 
+@app.exception_handler(psycopg.IntegrityError)
+async def integrity_error(_request, _error):
+    return JSONResponse({'detail': 'Conflicting resource or grant'}, status_code=409)
+
+
 @app.exception_handler(ValueError)
 async def value_error(_request, _error):
     return JSONResponse({'detail': 'Invalid request or conflicting idempotency key'}, status_code=400)
@@ -67,7 +72,7 @@ async def value_error(_request, _error):
 
 class ResourceCreate(BaseModel):
     provider: str = Field(min_length=1, max_length=80)
-    capabilities: list[str] = Field(min_length=1, max_length=50)
+    capabilities: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(min_length=1, max_length=50)
     currency: str = Field(pattern='^[A-Z]{3}$')
     max_concurrency: int = Field(default=1, ge=1, le=100)
 
