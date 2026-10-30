@@ -1,7 +1,13 @@
 import { strict as assert } from "node:assert";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { buildHiggsfieldMcpAuthorizationUrl, discoverHiggsfieldMcpOAuth, exchangeHiggsfieldMcpCode, refreshHiggsfieldMcpToken, registerHiggsfieldMcpClient, summarizeHiggsfieldMcpVideoGeneration, type HiggsfieldMcpOAuthMetadata, type HiggsfieldMcpTool } from "../lib/higgsfield-mcp-oauth.ts";
+import { buildHiggsfieldMcpAuthorizationUrl, describeHiggsfieldMcpConnection, discoverHiggsfieldMcpOAuth, exchangeHiggsfieldMcpCode, refreshHiggsfieldMcpToken, registerHiggsfieldMcpClient, summarizeHiggsfieldMcpVideoGeneration, type HiggsfieldMcpOAuthMetadata, type HiggsfieldMcpTool } from "../lib/higgsfield-mcp-oauth.ts";
+
+test("connection wording does not claim a disconnected or expired account is verified", () => {
+  assert.match(describeHiggsfieldMcpConnection(false,false),/No Higgsfield account/);
+  assert.match(describeHiggsfieldMcpConnection(true,true),/expired/);
+  assert.match(describeHiggsfieldMcpConnection(true,false),/read-only tool listing/);
+});
 
 const metadata: HiggsfieldMcpOAuthMetadata = {
   issuer: "https://clerk.higgsfield.ai",

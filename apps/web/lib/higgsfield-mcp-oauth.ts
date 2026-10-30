@@ -206,6 +206,12 @@ export async function revokeHiggsfieldMcpToken(metadata: HiggsfieldMcpOAuthMetad
   } catch { return false; }
 }
 
+export function describeHiggsfieldMcpConnection(verified: boolean, expired: boolean): string {
+  if (!verified) return "No Higgsfield account has been connected and verified for this user.";
+  if (expired) return "The Higgsfield MCP access token expired. Reconnect this account to refresh authorization.";
+  return "OAuth connection and read-only tool listing are verified for this user. Generation is a separate capability.";
+}
+
 export function summarizeHiggsfieldMcpVideoGeneration(tools: HiggsfieldMcpTool[] | null | undefined) {
   const tool = tools?.find(item => item.name === "generate_video");
   const properties = tool?.inputSchema?.properties;

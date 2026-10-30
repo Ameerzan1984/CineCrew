@@ -4,7 +4,7 @@ import { database } from "../../../lib/db";
 import { allowedOrigin } from "../../../lib/origin";
 import { encryptProviderCredentials, decryptProviderCredentials, decryptHiggsfieldMcpTokens, encryptHiggsfieldMcpTokens } from "../../../lib/provider-vault";
 import { HiggsfieldApiClient, HiggsfieldHttpError, HIGGSFIELD_SEEDANCE_25_MODEL, parseHiggsfieldApiKey } from "../../../../../packages/providers/src/index";
-import { discoverHiggsfieldMcpOAuth, inspectHiggsfieldMcpTools, refreshHiggsfieldMcpToken, summarizeHiggsfieldMcpVideoGeneration, type HiggsfieldMcpTool } from "../../../lib/higgsfield-mcp-oauth";
+import { describeHiggsfieldMcpConnection, discoverHiggsfieldMcpOAuth, inspectHiggsfieldMcpTools, refreshHiggsfieldMcpToken, summarizeHiggsfieldMcpVideoGeneration, type HiggsfieldMcpTool } from "../../../lib/higgsfield-mcp-oauth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,7 +44,7 @@ function state(row?: { verified_at: string | Date | null }, jobs: unknown[] = []
   const videoGeneration = summarizeHiggsfieldMcpVideoGeneration(mcp?.tools);
   return {
     api: { configured: !!row, verified: !!row?.verified_at, verifiedAt: row?.verified_at ?? null },
-    mcp: { available: true, connected: !!mcp?.verified_at && !mcpExpired, verifiedAt: mcp?.verified_at ?? null, tools: mcp?.tools ?? [], videoGeneration, reason: mcpExpired ? "The Higgsfield MCP access token expired. Reconnect this account to refresh authorization." : "OAuth connection and read-only tool listing are verified for this user. Generation is a separate capability." },
+    mcp: { available: true, connected: !!mcp?.verified_at && !mcpExpired, verifiedAt: mcp?.verified_at ?? null, tools: mcp?.tools ?? [], videoGeneration, reason: describeHiggsfieldMcpConnection(!!mcp?.verified_at, mcpExpired) },
     models: [
       { id: HIGGSFIELD_SEEDANCE_25_MODEL.slice(1), name: "Seedance 2.5 Text-to-Video", documented: true },
       { id: "bytedance/seedance-2.5/reference-to-video", name: "Seedance 2.5 Reference-to-Video", documented: true },

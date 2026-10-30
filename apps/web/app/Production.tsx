@@ -163,6 +163,10 @@ export default function Production({ filmId, ar }: { filmId: string; ar: boolean
   </form>;
 
   return <div className="production-sections">
+    <div className="settings-card" role="status">
+      <h3>{ar ? "حسابات المساهمين في Higgsfield" : "Contributors’ Higgsfield accounts"}</h3>
+      <p>{ar ? "يمكن لكل مساهم محاولة ربط حسابه من الاتصالات عبر MCP. ربط الحساب وتوليد فيديو منه داخل CineMesh لم يُختبرا مع مستخدمين حقيقيين بعد. زر التوليد عبر API أدناه مسار منفصل يتطلب مفتاح API ورصيد API خاصين بالمساهم." : "Each contributor can connect their own account through MCP in Connections. Account linking and generation through it have not yet been verified with real CineMesh users. The API generation button below is a separate path requiring that contributor’s API key and API balance."}</p>
+    </div>
     <div className="settings-card">
       <h3>{ar ? "نسخ الفيلم المجمعة" : "Assembled films"}</h3>
       {canEdit && <button type="button" className="primary-button" disabled={busy || data.generations.filter(job => job.status === "completed" && job.media_asset_id).length < 2} onClick={assembleFilm}>{ar ? "اجمع اللقطات المحفوظة بـFFmpeg" : "Assemble saved shots with FFmpeg"}</button>}
