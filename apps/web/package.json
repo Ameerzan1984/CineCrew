@@ -9,7 +9,8 @@
     "lint": "tsc --noEmit",
     "db:migrate": "node scripts/migrate.cjs",
     "test:unit": "node --test test/*.test.ts",
-    "test:integration": "node test/integration.cjs"
+    "test:integration": "node test/integration.cjs",
+    "test:continuation": "node test/continuation.integration.cjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

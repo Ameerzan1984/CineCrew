@@ -19,6 +19,7 @@ function shape(row: Record<string, unknown>, userId: string) {
     duration_seconds: row.duration_seconds, status: row.status, provider_request_id: row.provider_request_id,
     video_url: row.video_url, video_expires_at: row.video_expires_at,
     media_asset_id: row.media_asset_id ?? null, media_size_bytes: row.media_size_bytes ?? null,
+    reference_generation_job_id: row.reference_generation_job_id ?? null,
     last_error_code: row.last_error_code, created_at: row.created_at, updated_at: row.updated_at,
   };
 }

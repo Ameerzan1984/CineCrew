@@ -76,7 +76,7 @@ export async function POST(request: NextRequest, context: Context) {
     try {
       await client.query("BEGIN");
       const access = await client.query(`SELECT f.owner_id,CASE WHEN f.owner_id=$3 THEN 'owner' ELSE c.role END AS role,
-          s.id AS scene_id,s.created_by,s.title,s.description,pc.encrypted_credentials
+          s.id AS scene_id,s.position,s.created_by,s.title,s.description,pc.encrypted_credentials
         FROM films f JOIN scenes s ON s.film_id=f.id
         LEFT JOIN film_contributors c ON c.film_id=f.id AND c.user_id=$3
         LEFT JOIN provider_connections pc ON pc.user_id=$3 AND pc.provider='higgsfield-api'

@@ -28,9 +28,20 @@ export default function Production({ filmId, ar }: { filmId: string; ar: boolean
     return () => window.clearInterval(timer);
   }, [filmId]);
 
+  async function storeCompletedClip(job: Generation) {
+    if (!job.mine || job.status !== "completed" || !job.video_url || job.media_asset_id) return;
+    try {
+      await request(`/api/films/${filmId}/generations/${job.id}/media`, "POST", {});
+      await refresh();
+    } catch {
+      setNotice(ar ? "اكتمل التوليد، لكن حفظ الفيديو لم ينجح. استخدم زر حفظ الفيديو للمحاولة مرة أخرى." : "Generation completed, but the clip could not be saved. Use Save clip to retry.");
+    }
+  }
+
   async function refreshGeneration(job: Generation) {
     const result = await request(`/api/films/${filmId}/generations/${job.id}`);
     setData(current => ({ ...current, generations: current.generations.map(item => item.id === job.id ? result : item) }));
+    await storeCompletedClip(result);
   }
 
   async function saveClip(job: Generation) {
@@ -74,6 +85,7 @@ export default function Production({ filmId, ar }: { filmId: string; ar: boolean
       const result = await request(`/api/films/${filmId}/generations`, "POST", { sceneId: scene.id, requestKey: crypto.randomUUID(), ...(continuation ? { referenceGenerationId: continuation.id } : {}) });
       setData(current => ({ ...current, generations: [result, ...current.generations.filter(item => item.id !== result.id)] }));
       setNotice(continuation ? (ar ? "أُرسلت اللقطة التالية مع الفيديو السابق كمرجع بصري." : "Continuation submitted using the previous shot as a visual reference.") : (ar ? "أُرسلت اللقطة إلى Higgsfield بحساب API الخاص بك." : "Shot generation was submitted with your own Higgsfield API account."));
+      await storeCompletedClip(result);
     } catch (e) { setNotice((e as Error).message); await refresh().catch(() => undefined); }
     finally { setBusy(false); }
   }
