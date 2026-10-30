@@ -55,7 +55,20 @@ async function main() {
     const continuation = await request(`films/${filmId}/generations`, "POST", { sceneId: secondSceneId, requestKey: randomUUID(), referenceGenerationId: firstJobId }, member.cookie);
     assert.equal(continuation.status, 409);
     assert.match(continuation.body.error, /expired/i, "The first shot must be recognized as earlier before its expired URL is rejected");
-    console.log("PASS: two-user ownership and earlier-shot continuation checks; no provider generation was submitted");
+
+    const agentRunId = randomUUID();
+    const agentFirst = randomUUID(), agentSecond = randomUUID();
+    await pool.query(`INSERT INTO scenes(id,film_id,position,title,description,created_by,agent_run_id,agent_shot_id)
+      VALUES($1,$3,3,'Agent shot 1','The first agent-planned action.',NULL,$4,'shot_1'),
+            ($2,$3,4,'Agent shot 2','The second agent-planned action.',NULL,$4,'shot_2')`, [agentFirst,agentSecond,filmId,agentRunId]);
+    const ownerClaim = await request(`films/${filmId}/production`, "POST", { action: "claim_scene", id: agentFirst }, owner.cookie);
+    assert.equal(ownerClaim.status, 200); assert.equal(ownerClaim.body.role, "owner");
+    assert.equal(ownerClaim.body.scenes.find(scene => scene.id === agentFirst).mine, true);
+    const memberClaim = await request(`films/${filmId}/production`, "POST", { action: "claim_scene", id: agentSecond }, member.cookie);
+    assert.equal(memberClaim.status, 200); assert.equal(memberClaim.body.role, "editor");
+    assert.equal(memberClaim.body.scenes.find(scene => scene.id === agentSecond).mine, true);
+    assert.equal((await request(`films/${filmId}/production`, "POST", { action: "claim_scene", id: agentFirst }, member.cookie)).status, 404);
+    console.log("PASS: two-user ownership, agent shot claims, and earlier-shot continuation checks; no provider generation was submitted");
   } finally { await pool.end(); }
 }
 

@@ -1,6 +1,6 @@
 # CineMesh Film Engine
 
-This service provides a durable, resumable **offline planning** pipeline, imports documents validated by CineCrew's `SceneBlueprint` FilmDSL schema, and invokes CineCrew's `ProductionOperatorAgent.build_from_blueprint` to produce job specifications without network access. It does not run the generative agents, an AI model, Higgsfield, FFmpeg or a publishing service. Checkpoints after planning explicitly say when assets, generation, rendering and publication are pending. A 120-minute duration is accepted as project metadata, not a promise that a feature film can be produced by this adapter.
+This service provides a durable, resumable **offline planning** pipeline, imports documents validated by CineCrew's `SceneBlueprint` FilmDSL schema, and invokes CineCrew's `ProductionOperatorAgent.build_from_blueprint` to produce job specifications without network access. An opt-in path also runs the real CineCrew Art Department and Story Editor with an authorized language-model connection, saving their checkpoints, asset library and FilmDSL. It does not yet run the full agent pipeline, submit Higgsfield jobs, invoke FFmpeg, or publish films. A 120-minute duration is project metadata, not a promise that a feature film can be produced by this adapter.
 
 ## Run
 
@@ -27,6 +27,7 @@ pytest -q
 - `POST /films/{id}/run` resumes all remaining planning steps. `GET /films/{id}/checkpoints` reads persisted checkpoints in order.
 - `PUT /films/{id}/filmdsl` validates and imports a CineCrew `SceneBlueprint` JSON document; `GET` retrieves the normalized document. This validates the schema, not cross-asset continuity, and does not execute the blueprint.
 - `POST /films/{id}/production-plan` accepts an upstream `AssetLibrary` and builds and persists a CineCrew `VideoJobBatch` and its resulting blueprint. `GET` retrieves the plan. Importing a replacement blueprint invalidates the old plan. No job is submitted and no media is generated.
+- `POST /films/{id}/cinecrew/story-editor` runs Art Department and Story Editor against a screenplay excerpt, using an authorized model connection supplied by the trusted web gateway. A `run_id` supports resuming checkpoints; `GET /films/{id}/cinecrew/runs/{run_id}` reads the saved result. The web app can import the resulting narrative shots for contributors to claim.
 
 Each advancement is committed atomically with its checkpoint. Concurrent advances are serialized; each checkpoint and idempotency key is unique per film. `planning_complete` only means all offline planning steps have been recorded. It does not mean that a screenplay, final render or published film exists. Later stages carry pending/empty manifests until real provider, editorial and rendering integrations are implemented.
 

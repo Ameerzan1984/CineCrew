@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 
-type Scene = { id: string; position: number; title: string; description: string; creator_name: string | null; mine: boolean };
+type Scene = { id: string; position: number; title: string; description: string; creator_name: string | null; mine: boolean; claimable: boolean };
 type Character = { id: string; name: string; description: string; asset_id: string | null };
 type Person = { user_id: string; display_name: string; role: "editor" | "viewer" };
 type Generation = { id: string; scene_id: string; scene_title: string; contributor_id: string; contributor_name: string; mine: boolean; model_path: string; prompt: string; duration_seconds: number; status: string; provider_request_id: string | null; video_url: string | null; video_expires_at: string | null; media_asset_id: string | null; media_size_bytes: string | number | null; reference_generation_job_id: string | null; last_error_code: string | null; created_at: string; updated_at: string };
@@ -157,6 +157,7 @@ export default function Production({ filmId, ar }: { filmId: string; ar: boolean
 
   const sceneForm = (scene?: Scene) => {
     const editable = canEdit && (!scene || isOwner || scene.mine);
+    if (scene?.claimable) return <article className="production-form" key={scene.id}><strong>{scene.position}. {scene.title}</strong><p>{scene.description}</p><small>{ar ? "لقطة خططها وكيل CineCrew ولم يخترها مساهم بعد." : "Planned by CineCrew; waiting for a contributor."}</small>{canEdit && <button type="button" className="outline-button" disabled={busy} onClick={() => mutate("claim_scene",scene.id)}>{ar ? "اختر هذه اللقطة لمساهمتي" : "Claim this shot"}</button>}</article>;
     if (scene && !editable) return <article className="production-form" key={scene.id}><strong>{scene.position}. {scene.title}</strong><p>{scene.description}</p><small>{ar ? "مساهمة:" : "Contribution by:"} {scene.creator_name || (ar ? "مالك الفيلم" : "Film owner")}</small>{generationPanel(scene)}</article>;
     return <div className="shot-block" key={scene?.id || "new-scene"}><form className="connection-form production-form" onSubmit={e => submit(e, scene ? "update_scene" : "create_scene", scene?.id)}>
       <label>{ar ? "الترتيب" : "Position"}<input type="number" name="position" required min="1" defaultValue={scene?.position ?? (Math.max(0, ...data.scenes.map(x => x.position)) + 1)} /></label>

@@ -27,12 +27,14 @@ export default function CineCrewAgentRun({
   ar,
   linked,
   canRunAgents,
+  canImportShots,
   onComplete,
 }: {
   filmId: string;
   ar: boolean;
   linked: boolean;
   canRunAgents: boolean;
+  canImportShots: boolean;
   onComplete: () => void;
 }) {
   const [script, setScript] = useState("");
@@ -40,6 +42,7 @@ export default function CineCrewAgentRun({
   const [run, setRun] = useState<Run | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [importNotice, setImportNotice] = useState("");
   const [models, setModels] = useState<Array<{ id: string; name: string }>>([]);
   const [model, setModel] = useState("");
   const [connected, setConnected] = useState<boolean | null>(null);
@@ -58,7 +61,6 @@ export default function CineCrewAgentRun({
         setRun(value);
         if (value.script_segment) setScript((current) => current || value.script_segment);
         if (value.status === "completed") {
-          window.sessionStorage.removeItem(runKey);
           setRunId("");
           onComplete();
         }
@@ -97,7 +99,6 @@ export default function CineCrewAgentRun({
         body: JSON.stringify({ run_id: id, script_segment: script, model }),
       });
       setRun(result);
-      window.sessionStorage.removeItem(runKey);
       setRunId("");
       onComplete();
     } catch (cause) {
@@ -121,7 +122,6 @@ export default function CineCrewAgentRun({
       const result = await request(`/api/films/${filmId}/agents/story-editor?run_id=${encodeURIComponent(runId)}`);
       setRun(result);
       if (result.status === "completed") {
-        window.sessionStorage.removeItem(runKey);
         setRunId("");
         onComplete();
       }
@@ -130,6 +130,21 @@ export default function CineCrewAgentRun({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function importShots() {
+    if (!run || run.status !== "completed") return;
+    setBusy(true); setError(""); setImportNotice("");
+    try {
+      const result = await request(`/api/films/${filmId}/agents/story-editor/import`, {
+        method: "POST", body: JSON.stringify({ run_id: run.id }),
+      });
+      setImportNotice(result.alreadyImported
+        ? (ar ? "أُضيفت لقطات هذا التشغيل سابقًا." : "Shots from this run were already added.")
+        : (ar ? `أضيفت ${result.imported} لقطة إلى الاستوديو؛ يمكن للمساهمين اختيارها.` : `Added ${result.imported} shots to the studio for contributors to claim.`));
+      onComplete();
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
   }
 
   return (
@@ -195,6 +210,8 @@ export default function CineCrewAgentRun({
           <strong>{ar ? "اكتمل تشغيل CineCrew" : "CineCrew run completed"}</strong>
           <span>{run.output.characters} {ar ? "شخصية" : "characters"} · {run.output.locations} {ar ? "موقع" : "locations"} · {run.output.shots} {ar ? "لقطة" : "shots"}</span>
           <small>{ar ? "النموذج" : "Model"}: {run.output.model}</small>
+          {canImportShots && <button type="button" className="outline-button" disabled={busy} onClick={importShots}>{ar ? "أضف لقطات الوكيل إلى الاستوديو" : "Add agent shots to studio"}</button>}
+          {importNotice && <small>{importNotice}</small>}
         </div>
       )}
       {run?.status === "running" && (

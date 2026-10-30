@@ -17,7 +17,8 @@ async function contents(client: PoolClient, filmId: string, userId: string, isOw
   await client.query(`UPDATE scene_generation_jobs SET status='uncertain',last_error_code='submission_response_missing',updated_at=now()
     WHERE film_id=$1 AND status='submitting' AND provider_request_id IS NULL AND created_at < now()-interval '3 minutes'`, [filmId]);
   const scenes = await client.query(
-    `SELECT s.id,s.position,s.title,s.description,s.created_by,u.display_name AS creator_name,(s.created_by=$2) AS mine
+    `SELECT s.id,s.position,s.title,s.description,s.created_by,u.display_name AS creator_name,(s.created_by=$2) AS mine,
+       (s.agent_run_id IS NOT NULL AND s.created_by IS NULL) AS claimable
      FROM scenes s LEFT JOIN users u ON u.id=s.created_by WHERE s.film_id=$1 ORDER BY s.position`, [filmId,userId]);
   const characters = await client.query("SELECT id,name,description,asset_id FROM characters WHERE film_id=$1 ORDER BY name,id", [filmId]);
   const generations = await client.query(
@@ -69,10 +70,10 @@ export async function POST(request: NextRequest, context: Context) {
     const data = JSON.parse(raw);
     if (!data || typeof data !== "object" || Array.isArray(data) || typeof data.action !== "string") return json({ error: "Invalid request" }, 400);
     const action = data.action as string;
-    const actions = ["create_scene", "update_scene", "delete_scene", "create_character", "update_character", "delete_character"];
+    const actions = ["create_scene", "update_scene", "delete_scene", "claim_scene", "create_character", "update_character", "delete_character"];
     if (!actions.includes(action)) return json({ error: "Unknown action" }, 400);
     if (!action.startsWith("create_") && (typeof data.id !== "string" || !uuid.test(data.id))) return json({ error: "Invalid item ID" }, 400);
-    if (action.endsWith("scene") && !action.startsWith("delete_") && (!Number.isInteger(data.position) || data.position < 0 || data.position > 100000 || !validText(data.title, 160, true) || !validText(data.description, 4000))) return json({ error: "Invalid scene fields" }, 400);
+    if (action.endsWith("scene") && !action.startsWith("delete_") && action !== "claim_scene" && (!Number.isInteger(data.position) || data.position < 0 || data.position > 100000 || !validText(data.title, 160, true) || !validText(data.description, 4000))) return json({ error: "Invalid scene fields" }, 400);
     if (action.endsWith("character") && !action.startsWith("delete_") && (!validText(data.name, 160, true) || !validText(data.description, 4000) || !(data.asset_id === null || data.asset_id === undefined || validText(data.asset_id, 160, true)))) return json({ error: "Invalid character fields" }, 400);
     const client = await database().connect();
     try {
@@ -88,7 +89,8 @@ export async function POST(request: NextRequest, context: Context) {
       if (!isEditor) { await client.query("ROLLBACK"); return json({ error: "Editor access required" }, 403); }
       if (!isOwner && action.endsWith("character")) { await client.query("ROLLBACK"); return json({ error: "Only the film owner can edit characters" }, 403); }
       let changed;
-      if (action === "create_scene") changed = await client.query("INSERT INTO scenes(id,film_id,position,title,description,created_by) VALUES($1,$2,$3,$4,$5,$6)", [randomUUID(), filmId, data.position, data.title.trim(), data.description, user.id]);
+      if (action === "claim_scene") changed = await client.query("UPDATE scenes SET created_by=$1 WHERE id=$2 AND film_id=$3 AND agent_run_id IS NOT NULL AND created_by IS NULL", [user.id,data.id,filmId]);
+      else if (action === "create_scene") changed = await client.query("INSERT INTO scenes(id,film_id,position,title,description,created_by) VALUES($1,$2,$3,$4,$5,$6)", [randomUUID(), filmId, data.position, data.title.trim(), data.description, user.id]);
       else if (action === "update_scene") changed = isOwner
         ? await client.query("UPDATE scenes SET position=$1,title=$2,description=$3 WHERE id=$4 AND film_id=$5", [data.position, data.title.trim(), data.description, data.id, filmId])
         : await client.query("UPDATE scenes SET position=$1,title=$2,description=$3 WHERE id=$4 AND film_id=$5 AND created_by=$6", [data.position, data.title.trim(), data.description, data.id, filmId, user.id]);
@@ -102,7 +104,7 @@ export async function POST(request: NextRequest, context: Context) {
       await client.query("UPDATE films SET updated_at=now() WHERE id=$1", [filmId]);
       const result = await contents(client, filmId, user.id, isOwner);
       await client.query("COMMIT");
-      return json(result, action.startsWith("create_") ? 201 : 200);
+      return json({ ...result, role: film.rows[0].role }, action.startsWith("create_") ? 201 : 200);
     } catch (error) { await client.query("ROLLBACK"); throw error; }
     finally { client.release(); }
   } catch (error) {
