@@ -14,17 +14,25 @@ const validText = (value: unknown, max: number, required = false): value is stri
   typeof value === "string" && value.length <= max && (!required || !!value.trim());
 
 async function contents(client: PoolClient, filmId: string, userId: string, isOwner: boolean) {
+  await client.query(`UPDATE scene_generation_jobs SET status='uncertain',last_error_code='submission_response_missing',updated_at=now()
+    WHERE film_id=$1 AND status='submitting' AND provider_request_id IS NULL AND created_at < now()-interval '3 minutes'`, [filmId]);
   const scenes = await client.query(
     `SELECT s.id,s.position,s.title,s.description,s.created_by,u.display_name AS creator_name,(s.created_by=$2) AS mine
      FROM scenes s LEFT JOIN users u ON u.id=s.created_by WHERE s.film_id=$1 ORDER BY s.position`, [filmId,userId]);
   const characters = await client.query("SELECT id,name,description,asset_id FROM characters WHERE film_id=$1 ORDER BY name,id", [filmId]);
+  const generations = await client.query(
+    `SELECT j.id,j.film_id,j.scene_id,j.contributor_id,j.model_path,j.prompt,j.duration_seconds,j.status,
+      j.provider_request_id,j.video_url,j.video_expires_at,j.last_error_code,j.created_at,j.updated_at,
+      s.title AS scene_title,u.display_name AS contributor_name,(j.contributor_id=$2) AS mine
+     FROM scene_generation_jobs j JOIN scenes s ON s.id=j.scene_id JOIN users u ON u.id=j.contributor_id
+     WHERE j.film_id=$1 ORDER BY s.position,j.created_at DESC LIMIT 200`, [filmId,userId]);
   const collaborators = await client.query(
     `SELECT c.user_id,c.role,c.created_at,u.display_name FROM film_contributors c
      JOIN users u ON u.id=c.user_id WHERE c.film_id=$1 ORDER BY u.display_name`, [filmId]);
   const invitations = isOwner ? await client.query(
     `SELECT i.user_id,i.role,i.created_at,u.display_name FROM film_invitations i
      JOIN users u ON u.id=i.user_id WHERE i.film_id=$1 AND i.status='pending' ORDER BY i.created_at`, [filmId]) : { rows: [] };
-  return { scenes: scenes.rows, characters: characters.rows, collaborators: collaborators.rows, invitations: invitations.rows };
+  return { scenes: scenes.rows, characters: characters.rows, generations: generations.rows, collaborators: collaborators.rows, invitations: invitations.rows };
 }
 
 export async function GET(_request: NextRequest, context: Context) {

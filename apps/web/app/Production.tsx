@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 type Scene = { id: string; position: number; title: string; description: string; creator_name: string | null; mine: boolean };
 type Character = { id: string; name: string; description: string; asset_id: string | null };
 type Person = { user_id: string; display_name: string; role: "editor" | "viewer" };
-type Data = { role: "owner" | "editor" | "viewer"; scenes: Scene[]; characters: Character[]; collaborators: Person[]; invitations: Person[] };
+type Generation = { id: string; scene_id: string; scene_title: string; contributor_id: string; contributor_name: string; mine: boolean; model_path: string; prompt: string; duration_seconds: number; status: string; provider_request_id: string | null; video_url: string | null; video_expires_at: string | null; last_error_code: string | null; created_at: string; updated_at: string };
+type Data = { role: "owner" | "editor" | "viewer"; scenes: Scene[]; characters: Character[]; generations: Generation[]; collaborators: Person[]; invitations: Person[] };
 
 export default function Production({ filmId, ar }: { filmId: string; ar: boolean }) {
-  const [data, setData] = useState<Data>({ role: "viewer", scenes: [], characters: [], collaborators: [], invitations: [] });
+  const [data, setData] = useState<Data>({ role: "viewer", scenes: [], characters: [], generations: [], collaborators: [], invitations: [] });
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const isOwner = data.role === "owner";
@@ -21,6 +22,39 @@ export default function Production({ filmId, ar }: { filmId: string; ar: boolean
   }
   async function refresh() { setData(await request(`/api/films/${filmId}/production`)); }
   useEffect(() => { refresh().catch(e => setNotice(e.message)); }, [filmId]);
+
+  async function refreshGeneration(job: Generation) {
+    const result = await request(`/api/films/${filmId}/generations/${job.id}`);
+    setData(current => ({ ...current, generations: current.generations.map(item => item.id === job.id ? result : item) }));
+  }
+
+  useEffect(() => {
+    const active = data.generations.filter(job => job.mine && job.provider_request_id && ["queued", "in_progress"].includes(job.status));
+    if (!active.length) return;
+    const timer = window.setInterval(() => {
+      for (const job of active) void refreshGeneration(job).catch(e => setNotice((e as Error).message));
+    }, 8000);
+    return () => window.clearInterval(timer);
+  }, [data.generations, filmId]);
+
+  async function generate(scene: Scene) {
+    setBusy(true); setNotice("");
+    try {
+      const result = await request(`/api/films/${filmId}/generations`, "POST", { sceneId: scene.id, requestKey: crypto.randomUUID() });
+      setData(current => ({ ...current, generations: [result, ...current.generations.filter(item => item.id !== result.id)] }));
+      setNotice(ar ? "بدأ طلب اللقطة من حساب Higgsfield الخاص بك." : "Shot generation was submitted with your own Higgsfield API account.");
+    } catch (e) { setNotice((e as Error).message); await refresh().catch(() => undefined); }
+    finally { setBusy(false); }
+  }
+
+  async function resolveUncertain(job: Generation) {
+    setBusy(true); setNotice("");
+    try {
+      await request(`/api/films/${filmId}/generations/${job.id}`, "POST", { action: "confirm_not_submitted" });
+      await refresh(); setNotice(ar ? "تأكدت من لوحة Higgsfield وأغلقت الطلب الملتبس." : "Uncertain job closed after you confirmed that it is absent from Higgsfield.");
+    } catch (e) { setNotice((e as Error).message); }
+    finally { setBusy(false); }
+  }
 
   async function submit(event: React.FormEvent<HTMLFormElement>, action: string, id?: string) {
     event.preventDefault();
@@ -59,16 +93,29 @@ export default function Production({ filmId, ar }: { filmId: string; ar: boolean
     finally { setBusy(false); }
   }
 
+  const generationPanel = (scene: Scene) => {
+    const jobs = data.generations.filter(job => job.scene_id === scene.id);
+    return <div className="generation-jobs">{jobs.map(job => <article className="production-form" key={job.id}>
+      <strong>{job.contributor_name} · {job.duration_seconds}s · {job.status}</strong>
+      {job.video_url && job.status === "completed" && <video controls playsInline preload="metadata" src={job.video_url} />}
+      {job.video_expires_at && <small>{ar ? "ينتهي رابط المزود: " : "Provider URL expires: "}{new Date(job.video_expires_at).toLocaleString()}</small>}
+      {job.status === "uncertain" && job.mine && <><p>{ar ? "تحقق من لوحة Higgsfield قبل إعادة المحاولة لتجنب طلب أو خصم مكرر." : "Check your Higgsfield dashboard before retrying so you do not accidentally submit or pay twice."}</p><button type="button" className="outline-button" disabled={busy} onClick={() => resolveUncertain(job)}>{ar ? "تحققت ولم أجد الطلب" : "I checked; no request exists"}</button></>}
+      {job.mine && job.provider_request_id && ["queued", "in_progress"].includes(job.status) && <button type="button" className="outline-button" disabled={busy} onClick={() => refreshGeneration(job).catch(e => setNotice((e as Error).message))}>{ar ? "تحديث الحالة" : "Refresh status"}</button>}
+    </article>)}
+    {scene.mine && canEdit && <button type="button" className="primary-button" disabled={busy || !scene.description.trim() || jobs.some(job => ["submitting", "uncertain", "queued", "in_progress"].includes(job.status))} onClick={() => generate(scene)}>{ar ? "توليد لقطة ٤ ثوانٍ بحسابي" : "Generate a 4-second shot with my Higgsfield API"}</button>}
+    </div>;
+  };
+
   const sceneForm = (scene?: Scene) => {
     const editable = canEdit && (!scene || isOwner || scene.mine);
-    if (scene && !editable) return <article className="production-form" key={scene.id}><strong>{scene.position}. {scene.title}</strong><p>{scene.description}</p><small>{ar ? "مساهمة:" : "Contribution by:"} {scene.creator_name || (ar ? "مالك الفيلم" : "Film owner")}</small></article>;
-    return <form className="connection-form production-form" key={scene?.id || "new-scene"} onSubmit={e => submit(e, scene ? "update_scene" : "create_scene", scene?.id)}>
+    if (scene && !editable) return <article className="production-form" key={scene.id}><strong>{scene.position}. {scene.title}</strong><p>{scene.description}</p><small>{ar ? "مساهمة:" : "Contribution by:"} {scene.creator_name || (ar ? "مالك الفيلم" : "Film owner")}</small>{generationPanel(scene)}</article>;
+    return <div className="shot-block" key={scene?.id || "new-scene"}><form className="connection-form production-form" onSubmit={e => submit(e, scene ? "update_scene" : "create_scene", scene?.id)}>
       <label>{ar ? "الترتيب" : "Position"}<input type="number" name="position" required min="1" defaultValue={scene?.position ?? (Math.max(0, ...data.scenes.map(x => x.position)) + 1)} /></label>
       <label>{ar ? "عنوان اللقطة" : "Shot title"}<input name="title" required maxLength={160} defaultValue={scene?.title} /></label>
       <label>{ar ? "وصف اللقطة" : "Shot description"}<textarea name="description" maxLength={4000} defaultValue={scene?.description} /></label>
       {scene && <small>{ar ? "مساهمة:" : "Contribution by:"} {scene.creator_name || (ar ? "مالك الفيلم" : "Film owner")}</small>}
       <div><button className="outline-button" disabled={busy}>{scene ? (ar ? "حفظ" : "Save") : (ar ? "إضافة مساهمتي" : "Add my shot contribution")}</button>{scene && <button type="button" className="text-button" disabled={busy} onClick={() => mutate("delete_scene", scene.id)}>{ar ? "حذف" : "Delete"}</button>}</div>
-    </form>;
+    </form>{scene && generationPanel(scene)}</div>;
   };
 
   const characterForm = (person?: Character) => <form className="connection-form production-form" key={person?.id || "new-character"} onSubmit={e => submit(e, person ? "update_character" : "create_character", person?.id)}>
@@ -90,8 +137,8 @@ export default function Production({ filmId, ar }: { filmId: string; ar: boolean
       {data.collaborators.map(person => <div className="community-list" key={person.user_id}><strong>{person.display_name}</strong><span className="pill">{person.role}</span><button className="text-button" disabled={busy} onClick={() => mutate("remove_collaborator", person.user_id)}>{ar ? "إزالة" : "Remove"}</button></div>)}
       {data.invitations.map(person => <p key={person.user_id}>{person.display_name} · {ar ? "بانتظار القبول" : "Invitation pending"}</p>)}
     </div>}
-    {!isOwner && <div className="settings-card"><h3>{ar ? "مساهمة جماعية" : "Team production"}</h3><p>{ar ? "أضف وصف لقطتك. لن تُعرض كفيديو مولّد حتى يكتمل ربط Higgsfield والتخزين." : "Add your shot description. It will not appear as generated video until Higgsfield generation and media storage are connected."}</p><span className="pill">{data.role}</span></div>}
-    <div className="settings-card"><h3>{ar ? "اللقطات" : "Shot contributions"}</h3><p>{ar ? "الوكيل يقرأ هذه اللقطات المحفوظة ويرتبها ضمن FilmDSL." : "The agent reads these saved shot contributions and connects them in the FilmDSL storyboard."}</p>{data.scenes.map(sceneForm)}{canEdit && sceneForm()}</div>
+    {!isOwner && <div className="settings-card"><h3>{ar ? "مساهمة جماعية" : "Team production"}</h3><p>{ar ? "أضف وصف لقطتك، ثم ولّدها بمفتاحك. تُخصم تكلفة التوليد من رصيد API الشخصي ولا تستخدم رصيد MCP." : "Add your shot description, then generate it with your own API key. A live request is charged to your personal Higgsfield API balance; it does not use MCP credits."}</p><span className="pill">{data.role}</span></div>}
+    <div className="settings-card"><h3>{ar ? "اللقطات" : "Shot contributions"}</h3><p>{ar ? "يرتب CineCrew أوصاف المساهمات في FilmDSL، ويمكن لكل مساهم توليد لقطته بحسابه. روابط Higgsfield مؤقتة؛ التخزين الدائم وتجميع الفيلم عبر FFmpeg ما زالا قيد التطوير." : "CineCrew orders contributions into FilmDSL, and each contributor can submit their shot with their own account. Higgsfield links are temporary; permanent media storage and final FFmpeg assembly are still in progress."}</p>{data.scenes.map(sceneForm)}{canEdit && sceneForm()}</div>
     <div className="settings-card"><h3>{ar ? "الشخصيات" : "Characters"}</h3><p>{ar ? "يستطيع مالك الفيلم تعديل الشخصيات فقط في هذا الإصدار." : "Only the film owner can edit characters in this version."}</p>{isOwner ? <>{data.characters.map(characterForm)}{characterForm()}</> : data.characters.map(person => <article className="production-form" key={person.id}><strong>{person.name}</strong><p>{person.description}</p></article>)}</div>
     {notice && <p role="alert">{notice}</p>}
   </div>;

@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { encryptProviderCredentials, decryptProviderCredentials } from "../lib/provider-vault.ts";
+import { encryptProviderCredentials, decryptProviderCredentials, encryptHiggsfieldMcpTokens, decryptHiggsfieldMcpTokens, encryptHiggsfieldMcpVerifier, decryptHiggsfieldMcpVerifier } from "../lib/provider-vault.ts";
 
 test("vault encrypts, binds ciphertext to user, and detects tampering", () => {
   process.env.HIGGSFIELD_VAULT_KEY = Buffer.alloc(32, 1).toString("base64");
@@ -21,4 +21,16 @@ test("vault fails closed without a valid key", () => {
   assert.throws(() => encryptProviderCredentials("user-one", { keyId: "id", keySecret: "secret" }));
   process.env.HIGGSFIELD_VAULT_KEY = Buffer.alloc(16).toString("base64");
   assert.throws(() => encryptProviderCredentials("user-one", { keyId: "id", keySecret: "secret" }));
+});
+
+test("MCP tokens and OAuth verifier are encrypted and bound to one user and purpose", () => {
+  process.env.HIGGSFIELD_VAULT_KEY = Buffer.alloc(32, 2).toString("base64");
+  const tokens = { accessToken: "access-value", refreshToken: "refresh-value", clientId: "client-value", expiresAt: 1234567890, scopes: ["openid", "offline_access"] };
+  const encryptedTokens = encryptHiggsfieldMcpTokens("user-one",tokens);
+  const encryptedVerifier = encryptHiggsfieldMcpVerifier("user-one","pkce-verifier");
+  assert.equal(encryptedTokens.includes(tokens.accessToken),false);
+  assert.deepEqual(decryptHiggsfieldMcpTokens("user-one",encryptedTokens),tokens);
+  assert.equal(decryptHiggsfieldMcpVerifier("user-one",encryptedVerifier),"pkce-verifier");
+  assert.throws(()=>decryptHiggsfieldMcpTokens("user-two",encryptedTokens));
+  assert.throws(()=>decryptHiggsfieldMcpVerifier("user-one",encryptedTokens));
 });

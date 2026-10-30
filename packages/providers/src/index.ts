@@ -163,3 +163,5 @@ export class HiggsfieldProvider implements GenerationProvider {
   async getBalance(): Promise<ProviderBalance> { return this.unavailable(); }
 }
 export { HiggsfieldApiClient, HiggsfieldHttpError } from "./higgsfield-api.ts";
+export { parseHiggsfieldApiKey } from "./higgsfield-credentials.ts";
+export { HIGGSFIELD_SEEDANCE_25_MODEL, seedance25Input } from "./higgsfield-models.ts";

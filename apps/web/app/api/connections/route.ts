@@ -2,26 +2,66 @@ import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "../../../lib/auth";
 import { database } from "../../../lib/db";
 import { allowedOrigin } from "../../../lib/origin";
-import { encryptProviderCredentials, decryptProviderCredentials } from "../../../lib/provider-vault";
-import { HiggsfieldApiClient, HiggsfieldHttpError } from "../../../../../packages/providers/src/index";
+import { encryptProviderCredentials, decryptProviderCredentials, decryptHiggsfieldMcpTokens, encryptHiggsfieldMcpTokens } from "../../../lib/provider-vault";
+import { HiggsfieldApiClient, HiggsfieldHttpError, HIGGSFIELD_SEEDANCE_25_MODEL, parseHiggsfieldApiKey } from "../../../../../packages/providers/src/index";
+import { discoverHiggsfieldMcpOAuth, inspectHiggsfieldMcpTools, refreshHiggsfieldMcpToken } from "../../../lib/higgsfield-mcp-oauth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const response = (value: unknown, status = 200) => NextResponse.json(value, { status, headers: { "Cache-Control": "no-store" } });
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function state(row?: { verified_at: string | Date | null }) {
+async function refreshMcpIfNeeded(userId: string, row?: Record<string, unknown>) {
+  if (!row || typeof row.encrypted_tokens !== "string") return row;
+  const client = await database().connect();
+  let inTransaction = false;
+  try {
+    await client.query("BEGIN"); inTransaction = true;
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`higgsfield-mcp-refresh:${userId}`]);
+    const latest = await client.query("SELECT client_id,callback_uri,encrypted_tokens,scopes,tools,access_expires_at,verified_at FROM higgsfield_mcp_connections WHERE user_id=$1 FOR UPDATE",[userId]);
+    if (!latest.rowCount || typeof latest.rows[0].encrypted_tokens !== "string") { await client.query("COMMIT"); return undefined; }
+    const currentRow = latest.rows[0] as Record<string, unknown>;
+    const expiresAt = currentRow.access_expires_at ? new Date(currentRow.access_expires_at as string | Date).getTime() : null;
+    if (!expiresAt || expiresAt > Date.now() + 60_000) { await client.query("COMMIT"); return currentRow; }
+    const oldCiphertext = currentRow.encrypted_tokens as string;
+    const current = decryptHiggsfieldMcpTokens(userId,oldCiphertext);
+    if (!current.refreshToken) { await client.query("COMMIT"); return currentRow; }
+    const metadata = await discoverHiggsfieldMcpOAuth();
+    const tokens = await refreshHiggsfieldMcpToken(metadata,current);
+    const tools = await inspectHiggsfieldMcpTools(tokens.accessToken);
+    const encrypted = encryptHiggsfieldMcpTokens(userId,tokens);
+    const saved = await client.query(`UPDATE higgsfield_mcp_connections SET encrypted_tokens=$2,scopes=$3,tools=$4::jsonb,
+      access_expires_at=$5,verified_at=now(),updated_at=now() WHERE user_id=$1 RETURNING client_id,callback_uri,encrypted_tokens,scopes,tools,access_expires_at,verified_at`,
+      [userId,encrypted,tokens.scopes,JSON.stringify(tools),tokens.expiresAt ? new Date(tokens.expiresAt) : null]);
+    await client.query("COMMIT"); inTransaction = false;
+    return saved.rows[0];
+  } catch {
+    if (inTransaction) await client.query("ROLLBACK").catch(() => undefined);
+    return row;
+  } finally { client.release(); }
+}
+function state(row?: { verified_at: string | Date | null }, jobs: unknown[] = [], mcp?: { verified_at: string | Date | null; tools: Array<{ name: string; description: string | null }>; access_expires_at: string | Date | null }) {
+  const mcpExpired = !!mcp?.access_expires_at && new Date(mcp.access_expires_at).getTime() <= Date.now();
   return {
     api: { configured: !!row, verified: !!row?.verified_at, verifiedAt: row?.verified_at ?? null },
-    mcp: { available: false, reason: "Standalone OAuth client registration has not been verified." },
-    models: [], jobs: [], usage: null, balance: null,
+    mcp: { available: true, connected: !!mcp?.verified_at && !mcpExpired, verifiedAt: mcp?.verified_at ?? null, tools: mcp?.tools ?? [], reason: mcpExpired ? "The Higgsfield MCP access token expired. Reconnect this account to refresh authorization." : "Higgsfield MCP supports per-user OAuth authorization with PKCE." },
+    models: [{ id: HIGGSFIELD_SEEDANCE_25_MODEL.slice(1), name: "Seedance 2.5 Text-to-Video", documented: true }],
+    jobs, usage: null, balance: null,
   };
 }
 export async function GET() {
   try {
     const user = await currentUser();
     if (!user) return response({ error: "Sign in required" }, 401);
-    const result = await database().query("SELECT verified_at FROM provider_connections WHERE user_id=$1 AND provider='higgsfield-api'", [user.id]);
-    return response(state(result.rows[0]));
+    const db = database();
+    const [result, jobs, mcpResult] = await Promise.all([
+      db.query("SELECT verified_at FROM provider_connections WHERE user_id=$1 AND provider='higgsfield-api'", [user.id]),
+      db.query(`SELECT j.id,j.model_path,j.status,j.created_at,j.updated_at,s.title AS scene_title
+        FROM scene_generation_jobs j JOIN scenes s ON s.id=j.scene_id
+        WHERE j.contributor_id=$1 ORDER BY j.created_at DESC LIMIT 20`, [user.id]),
+      db.query("SELECT client_id,callback_uri,encrypted_tokens,scopes,tools,access_expires_at,verified_at FROM higgsfield_mcp_connections WHERE user_id=$1",[user.id]),
+    ]);
+    const mcp = await refreshMcpIfNeeded(user.id,mcpResult.rows[0]);
+    return response(state(result.rows[0], jobs.rows, mcp as Parameters<typeof state>[2]));
   } catch { return response({ error: "Connection settings unavailable" }, 503); }
 }
 export async function POST(request: NextRequest) {
@@ -35,8 +75,16 @@ export async function POST(request: NextRequest) {
     if (!input || typeof input !== "object" || Array.isArray(input)) return response({ error: "Invalid request" }, 400);
     const db = database();
     if (input.action === "save") {
-      if (typeof input.keyId !== "string" || typeof input.keySecret !== "string" || !input.keyId.trim() || !input.keySecret.trim() || input.keyId.length > 512 || input.keySecret.length > 512 || /[:\r\n]/.test(input.keyId) || /[\r\n]/.test(input.keySecret)) return response({ error: "A valid API key ID and secret are required" }, 400);
-      const encrypted = encryptProviderCredentials(user.id, { keyId: input.keyId, keySecret: input.keySecret });
+      let credentials;
+      try {
+        if (typeof input.apiKey === "string") credentials = parseHiggsfieldApiKey(input.apiKey);
+        else if (typeof input.keyId === "string" && typeof input.keySecret === "string") credentials = parseHiggsfieldApiKey(`${input.keyId}:${input.keySecret}`);
+        else return response({ error: "A complete Higgsfield API key is required" }, 400);
+      } catch (error) {
+        if (error instanceof Error) return response({ error: error.message }, 400);
+        return response({ error: "A valid Higgsfield API key is required" }, 400);
+      }
+      const encrypted = encryptProviderCredentials(user.id, credentials);
       await db.query("INSERT INTO provider_connections(user_id,provider,encrypted_credentials) VALUES($1,'higgsfield-api',$2) ON CONFLICT(user_id,provider) DO UPDATE SET encrypted_credentials=$2, verified_at=NULL, updated_at=now()", [user.id, encrypted]);
       return response(state({ verified_at: null }));
     }

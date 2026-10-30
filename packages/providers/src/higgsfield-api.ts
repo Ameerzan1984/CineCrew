@@ -52,7 +52,7 @@ export class HiggsfieldApiClient {
     }
   }
 
-  private async call(url: string, method: "GET" | "POST", body?: unknown, idempotencyKey?: string): Promise<unknown> {
+  private async call(url: string, method: "GET" | "POST", body?: unknown, acceptEmpty202 = false): Promise<unknown> {
     let response: Response;
     try {
       response = await this.fetcher(url, {
@@ -60,30 +60,28 @@ export class HiggsfieldApiClient {
         headers: {
           Authorization: `Key ${this.credentials.keyId}:${this.credentials.keySecret}`,
           ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-          ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
         },
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       });
     } catch {
       // Do not forward provider/fetch exception text, which may contain headers or URLs.
-      throw new ProviderUnavailableError("Higgsfield API request failed or timed out; retry safely with the same idempotency key when submitting.");
+      throw new ProviderUnavailableError("Higgsfield API request failed or timed out; inspect the provider dashboard before trying the generation again.");
     }
     if (!response.ok) {
       if (response.status === 401) this.verified = false;
       throw new HiggsfieldHttpError(response.status, response.headers.get("x-correlation-id"), response.headers.get("retry-after"));
     }
-    if (response.status === 202) return null;
+    if (response.status === 202 && acceptEmpty202) return null;
     try { return await response.json(); }
     catch { throw new ProviderStateError("Higgsfield returned an invalid JSON response."); }
   }
 
   /** Submit only an endpoint and body verified against that model's current official docs. */
-  async submit(modelPath: string, body: Record<string, unknown>, idempotencyKey: string): Promise<{ handle: HiggsfieldHandle; result: HiggsfieldResult }> {
+  async submit(modelPath: string, body: Record<string, unknown>): Promise<{ handle: HiggsfieldHandle; result: HiggsfieldResult }> {
     if (!modelPathPattern.test(modelPath) || modelPath.split("/").some(part => part === "." || part === "..") || modelPath.startsWith("/requests/")) {
       throw new ProviderStateError("Invalid model endpoint path.");
     }
-    if (!idempotencyKey.trim() || /[\r\n]/.test(idempotencyKey)) throw new ProviderStateError("An idempotency key is required.");
-    const raw = await this.call(`${API_ORIGIN}${modelPath}`, "POST", body, idempotencyKey);
+    const raw = await this.call(`${API_ORIGIN}${modelPath}`, "POST", body);
     const result = this.parseResult(raw);
     const record = raw as Record<string, unknown>;
     if (typeof record.status_url !== "string" || typeof record.cancel_url !== "string") throw new ProviderStateError("Higgsfield did not return request URLs.");
@@ -105,7 +103,7 @@ export class HiggsfieldApiClient {
   /** A 202 confirms cancellation was accepted. The caller should poll for its terminal state. */
   async cancel(handle: HiggsfieldHandle): Promise<void> {
     this.validateHandle(handle);
-    await this.call(handle.cancelUrl, "POST");
+    await this.call(handle.cancelUrl, "POST", undefined, true);
     this.verified = true;
   }
 
@@ -126,6 +124,9 @@ export class HiggsfieldApiClient {
     add("video", v.video);
     if (Array.isArray(v.audios)) v.audios.forEach(item => add("audio", item));
     else add("audio", v.audio);
-    return { requestId: v.request_id, status: v.status as HiggsfieldStatus, outputs, expiresAt: typeof v.expires_at === "string" ? v.expires_at : null };
+    const expiration = typeof v.expires_at === "string" && Number.isFinite(Date.parse(v.expires_at))
+      ? new Date(v.expires_at).toISOString()
+      : null;
+    return { requestId: v.request_id, status: v.status as HiggsfieldStatus, outputs, expiresAt: expiration };
   }
 }
