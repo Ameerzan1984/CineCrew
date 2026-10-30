@@ -121,3 +121,20 @@ test("MCP connection status reports fields without claiming generation support",
   assert.equal(result.executable,false);
   assert.match(result.reason,/not enabled yet/);
 });
+
+test("MCP reports parameters inside the live anyOf schema without claiming generation is enabled", () => {
+  const result = summarizeHiggsfieldMcpVideoGeneration([{ name:"generate_video", description:null, inputSchema:{
+    type:"object", properties:{ params:{ anyOf:[{ type:"object", properties:{ model:{type:"string"}, prompt:{type:"string"}, get_cost:{type:"boolean"} } },{type:"string"}] }, context:{type:"string"} }, required:["params"],
+  } }]);
+  assert.deepEqual(result.paramsFields,["model","prompt","get_cost"]);
+  assert.equal(result.schemaHasParameters,true);
+  assert.equal(result.executable,false);
+});
+
+test("a bare params wrapper does not imply that paid-generation fields are known", () => {
+  const result = summarizeHiggsfieldMcpVideoGeneration([{ name:"generate_video", description:null, inputSchema:{
+    type:"object", properties:{params:{type:"object"},context:{type:"string"}}, required:["params"],
+  } }]);
+  assert.equal(result.schemaHasParameters,false);
+  assert.equal(result.executable,false);
+});

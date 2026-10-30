@@ -221,11 +221,14 @@ export function summarizeHiggsfieldMcpVideoGeneration(tools: HiggsfieldMcpTool[]
   const params = properties && typeof properties === "object" && !Array.isArray(properties)
     ? (properties as Record<string, unknown>).params
     : null;
-  const paramsFields = params && typeof params === "object" && !Array.isArray(params) &&
-    (params as Record<string, unknown>).properties && typeof (params as Record<string, unknown>).properties === "object"
-      ? Object.keys((params as { properties: Record<string, unknown> }).properties)
-      : [];
-  const schemaHasParameters = fields.length > 0 || paramsFields.length > 0;
+  const paramObject = params && typeof params === "object" && !Array.isArray(params) ? params as Record<string, unknown> : null;
+  const variants = [paramObject, ...(Array.isArray(paramObject?.anyOf) ? paramObject.anyOf : []), ...(Array.isArray(paramObject?.oneOf) ? paramObject.oneOf : [])];
+  const paramsFields = [...new Set(variants.flatMap(variant => {
+    if (!variant || typeof variant !== "object" || Array.isArray(variant)) return [];
+    const nested = (variant as Record<string, unknown>).properties;
+    return nested && typeof nested === "object" && !Array.isArray(nested) ? Object.keys(nested as Record<string, unknown>) : [];
+  }))];
+  const schemaHasParameters = paramsFields.length > 0 || fields.some(field => field !== "params" && field !== "context");
 
   return {
     advertised: !!tool,
