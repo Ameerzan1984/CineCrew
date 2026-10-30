@@ -18,13 +18,15 @@ function shape(row: Record<string, unknown>, userId: string) {
     mine: row.contributor_id === userId, model_path: row.model_path, prompt: row.prompt,
     duration_seconds: row.duration_seconds, status: row.status, provider_request_id: row.provider_request_id,
     video_url: row.video_url, video_expires_at: row.video_expires_at,
+    media_asset_id: row.media_asset_id ?? null, media_size_bytes: row.media_size_bytes ?? null,
     last_error_code: row.last_error_code, created_at: row.created_at, updated_at: row.updated_at,
   };
 }
 
 async function getRow(filmId: string, jobId: string, userId: string) {
-  return database().query(`SELECT j.*,s.title AS scene_title,u.display_name AS contributor_name
+  return database().query(`SELECT j.*,a.id AS media_asset_id,a.size_bytes AS media_size_bytes,s.title AS scene_title,u.display_name AS contributor_name
     FROM scene_generation_jobs j JOIN scenes s ON s.id=j.scene_id JOIN users u ON u.id=j.contributor_id
+    LEFT JOIN media_assets a ON a.generation_job_id=j.id AND a.kind='generation_clip'
     WHERE j.id=$1 AND j.film_id=$2 AND EXISTS(SELECT 1 FROM films f LEFT JOIN film_contributors c
       ON c.film_id=f.id AND c.user_id=$3 WHERE f.id=$2 AND (f.owner_id=$3 OR c.user_id=$3))`, [jobId,filmId,userId]);
 }

@@ -164,4 +164,4 @@ export class HiggsfieldProvider implements GenerationProvider {
 }
 export { HiggsfieldApiClient, HiggsfieldHttpError } from "./higgsfield-api.ts";
 export { parseHiggsfieldApiKey } from "./higgsfield-credentials.ts";
-export { HIGGSFIELD_SEEDANCE_25_MODEL, seedance25Input } from "./higgsfield-models.ts";
+export { HIGGSFIELD_SEEDANCE_25_MODEL, HIGGSFIELD_SEEDANCE_25_REFERENCE_MODEL, seedance25Input, seedance25ReferenceInput } from "./higgsfield-models.ts";

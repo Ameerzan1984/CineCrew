@@ -35,7 +35,7 @@ def render(root: Path, manifest_name: str, output_name: str) -> None:
         for path in paths:
             listing.write(f"file '{path.as_posix()}'\n")
     try:
-        subprocess.run(["ffmpeg", "-nostdin", "-n", "-f", "concat", "-safe", "0", "-i", str(listing_path), "-c", "copy", str(output)], check=True)
+        subprocess.run(["ffmpeg", "-nostdin", "-n", "-f", "concat", "-safe", "0", "-i", str(listing_path), "-c", "copy", "-movflags", "+faststart", str(output)], check=True)
     finally:
         listing_path.unlink(missing_ok=True)
 

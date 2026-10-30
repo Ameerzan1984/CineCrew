@@ -43,6 +43,9 @@ services:
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
       HIGGSFIELD_VAULT_KEY: ${HIGGSFIELD_VAULT_KEY:-}
       CHATGPT_VAULT_KEY: ${CHATGPT_VAULT_KEY:-}
+      CINEMESH_MEDIA_DIR: /data/media
+    volumes:
+      - media_data:/data/media
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
@@ -53,3 +56,4 @@ services:
 volumes:
   postgres_data:
   film_data:
+  media_data:

@@ -48,4 +48,5 @@ env/
 node_modules/
 .next/
 *.tsbuildinfo
+apps/web/.data/
 *.sqlite3

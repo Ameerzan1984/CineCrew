@@ -45,7 +45,10 @@ function state(row?: { verified_at: string | Date | null }, jobs: unknown[] = []
   return {
     api: { configured: !!row, verified: !!row?.verified_at, verifiedAt: row?.verified_at ?? null },
     mcp: { available: true, connected: !!mcp?.verified_at && !mcpExpired, verifiedAt: mcp?.verified_at ?? null, tools: mcp?.tools ?? [], videoGeneration, reason: mcpExpired ? "The Higgsfield MCP access token expired. Reconnect this account to refresh authorization." : "OAuth connection and read-only tool listing are verified for this user. Generation is a separate capability." },
-    models: [{ id: HIGGSFIELD_SEEDANCE_25_MODEL.slice(1), name: "Seedance 2.5 Text-to-Video", documented: true }],
+    models: [
+      { id: HIGGSFIELD_SEEDANCE_25_MODEL.slice(1), name: "Seedance 2.5 Text-to-Video", documented: true },
+      { id: "bytedance/seedance-2.5/reference-to-video", name: "Seedance 2.5 Reference-to-Video", documented: true },
+    ],
     jobs, usage: null, balance: null,
   };
 }
