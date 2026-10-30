@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { buildHiggsfieldMcpAuthorizationUrl, discoverHiggsfieldMcpOAuth, exchangeHiggsfieldMcpCode, refreshHiggsfieldMcpToken, registerHiggsfieldMcpClient, type HiggsfieldMcpOAuthMetadata } from "../lib/higgsfield-mcp-oauth.ts";
+import { buildHiggsfieldMcpAuthorizationUrl, discoverHiggsfieldMcpOAuth, exchangeHiggsfieldMcpCode, refreshHiggsfieldMcpToken, registerHiggsfieldMcpClient, summarizeHiggsfieldMcpVideoGeneration, type HiggsfieldMcpOAuthMetadata, type HiggsfieldMcpTool } from "../lib/higgsfield-mcp-oauth.ts";
 
 const metadata: HiggsfieldMcpOAuthMetadata = {
   issuer: "https://clerk.higgsfield.ai",
@@ -86,4 +86,32 @@ test("MCP OAuth refresh retains the old refresh token if rotation is omitted", a
     assert.equal(next.refreshToken,"long-lived-refresh");
     assert.ok(next.expiresAt && next.expiresAt > Date.now());
   } finally { globalThis.fetch=originalFetch; }
+});
+
+test("MCP connection status does not mistake an opaque generate_video schema for a runnable integration", () => {
+  const tool: HiggsfieldMcpTool = { name:"generate_video", description:"Generate video", inputSchema:{ type:"object" } };
+  const result = summarizeHiggsfieldMcpVideoGeneration([tool]);
+  assert.equal(result.advertised,true);
+  assert.equal(result.schemaKnown,true);
+  assert.equal(result.schemaHasParameters,false);
+  assert.equal(result.executable,false);
+  assert.match(result.reason,/will not guess paid generation arguments/);
+});
+
+test("legacy MCP records with no stored input schema ask for metadata refresh", () => {
+  const result = summarizeHiggsfieldMcpVideoGeneration([{ name:"generate_video", description:null, inputSchema:null }]);
+  assert.equal(result.advertised,true);
+  assert.equal(result.schemaKnown,false);
+  assert.match(result.reason,/Reconnect MCP to refresh/);
+});
+
+test("MCP connection status reports fields without claiming generation support", () => {
+  const tool: HiggsfieldMcpTool = { name:"generate_video", description:"Generate video", inputSchema:{
+    type:"object", properties:{ params:{ type:"object", properties:{ model:{type:"string"}, prompt:{type:"string"} } } }, required:["params"],
+  } };
+  const result = summarizeHiggsfieldMcpVideoGeneration([tool]);
+  assert.equal(result.schemaHasParameters,true);
+  assert.deepEqual(result.paramsFields,["model","prompt"]);
+  assert.equal(result.executable,false);
+  assert.match(result.reason,/not enabled yet/);
 });

@@ -15,6 +15,11 @@ export type HiggsfieldMcpToken = {
   expiresAt: number | null;
   scopes: string[];
 };
+export type HiggsfieldMcpTool = {
+  name: string;
+  description: string | null;
+  inputSchema: Record<string, unknown> | null;
+};
 export type HiggsfieldMcpOAuthMetadata = {
   issuer: string;
   authorization_endpoint: string;
@@ -201,7 +206,50 @@ export async function revokeHiggsfieldMcpToken(metadata: HiggsfieldMcpOAuthMetad
   } catch { return false; }
 }
 
-export async function inspectHiggsfieldMcpTools(accessToken: string): Promise<Array<{ name: string; description: string | null }>> {
+export function summarizeHiggsfieldMcpVideoGeneration(tools: HiggsfieldMcpTool[] | null | undefined) {
+  const tool = tools?.find(item => item.name === "generate_video");
+  const properties = tool?.inputSchema?.properties;
+  const fields = properties && typeof properties === "object" && !Array.isArray(properties)
+    ? Object.keys(properties as Record<string, unknown>)
+    : [];
+  const params = properties && typeof properties === "object" && !Array.isArray(properties)
+    ? (properties as Record<string, unknown>).params
+    : null;
+  const paramsFields = params && typeof params === "object" && !Array.isArray(params) &&
+    (params as Record<string, unknown>).properties && typeof (params as Record<string, unknown>).properties === "object"
+      ? Object.keys((params as { properties: Record<string, unknown> }).properties)
+      : [];
+  const schemaHasParameters = fields.length > 0 || paramsFields.length > 0;
+
+  return {
+    advertised: !!tool,
+    toolName: tool?.name ?? null,
+    schemaKnown: !!tool && tool.inputSchema !== null,
+    schemaHasParameters,
+    fields: fields.slice(0, 24),
+    paramsFields: paramsFields.slice(0, 24),
+    executable: false,
+    reason: !tool
+      ? "This account did not advertise a video generation tool."
+      : tool?.inputSchema === null
+        ? "CineMesh has no current input schema for generate_video. Reconnect MCP to refresh this account's tool metadata."
+      : !schemaHasParameters
+        ? "Higgsfield lists generate_video without its parameter schema. CineMesh will not guess paid generation arguments."
+        : "CineMesh currently verifies MCP access and tool listings; MCP video generation is not enabled yet.",
+  };
+}
+
+function safeToolInputSchema(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized.length > 16_384) return null;
+    const parsed: unknown = JSON.parse(serialized);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch { return null; }
+}
+
+export async function inspectHiggsfieldMcpTools(accessToken: string): Promise<HiggsfieldMcpTool[]> {
   const client = new Client({ name: "CineMesh", version: "0.1.0" }, { capabilities: {} });
   const transport = new StreamableHTTPClientTransport(new URL(HIGGSFIELD_MCP_RESOURCE), {
     redirectPolicy: "same-origin",
@@ -210,7 +258,11 @@ export async function inspectHiggsfieldMcpTools(accessToken: string): Promise<Ar
   try {
     await client.connect(transport);
     const result = await client.listTools();
-    return result.tools.map(tool => ({ name: tool.name, description: typeof tool.description === "string" ? tool.description : null }));
+    return result.tools.map(tool => ({
+      name: tool.name,
+      description: typeof tool.description === "string" ? tool.description.slice(0, 1000) : null,
+      inputSchema: safeToolInputSchema(tool.inputSchema),
+    }));
   } finally {
     await transport.close().catch(() => undefined);
   }

@@ -4,7 +4,7 @@ import { database } from "../../../lib/db";
 import { allowedOrigin } from "../../../lib/origin";
 import { encryptProviderCredentials, decryptProviderCredentials, decryptHiggsfieldMcpTokens, encryptHiggsfieldMcpTokens } from "../../../lib/provider-vault";
 import { HiggsfieldApiClient, HiggsfieldHttpError, HIGGSFIELD_SEEDANCE_25_MODEL, parseHiggsfieldApiKey } from "../../../../../packages/providers/src/index";
-import { discoverHiggsfieldMcpOAuth, inspectHiggsfieldMcpTools, refreshHiggsfieldMcpToken } from "../../../lib/higgsfield-mcp-oauth";
+import { discoverHiggsfieldMcpOAuth, inspectHiggsfieldMcpTools, refreshHiggsfieldMcpToken, summarizeHiggsfieldMcpVideoGeneration, type HiggsfieldMcpTool } from "../../../lib/higgsfield-mcp-oauth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,11 +39,12 @@ async function refreshMcpIfNeeded(userId: string, row?: Record<string, unknown>)
     return row;
   } finally { client.release(); }
 }
-function state(row?: { verified_at: string | Date | null }, jobs: unknown[] = [], mcp?: { verified_at: string | Date | null; tools: Array<{ name: string; description: string | null }>; access_expires_at: string | Date | null }) {
+function state(row?: { verified_at: string | Date | null }, jobs: unknown[] = [], mcp?: { verified_at: string | Date | null; tools: HiggsfieldMcpTool[]; access_expires_at: string | Date | null }) {
   const mcpExpired = !!mcp?.access_expires_at && new Date(mcp.access_expires_at).getTime() <= Date.now();
+  const videoGeneration = summarizeHiggsfieldMcpVideoGeneration(mcp?.tools);
   return {
     api: { configured: !!row, verified: !!row?.verified_at, verifiedAt: row?.verified_at ?? null },
-    mcp: { available: true, connected: !!mcp?.verified_at && !mcpExpired, verifiedAt: mcp?.verified_at ?? null, tools: mcp?.tools ?? [], reason: mcpExpired ? "The Higgsfield MCP access token expired. Reconnect this account to refresh authorization." : "Higgsfield MCP supports per-user OAuth authorization with PKCE." },
+    mcp: { available: true, connected: !!mcp?.verified_at && !mcpExpired, verifiedAt: mcp?.verified_at ?? null, tools: mcp?.tools ?? [], videoGeneration, reason: mcpExpired ? "The Higgsfield MCP access token expired. Reconnect this account to refresh authorization." : "OAuth connection and read-only tool listing are verified for this user. Generation is a separate capability." },
     models: [{ id: HIGGSFIELD_SEEDANCE_25_MODEL.slice(1), name: "Seedance 2.5 Text-to-Video", documented: true }],
     jobs, usage: null, balance: null,
   };
