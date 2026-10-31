@@ -232,7 +232,7 @@ This was a code/documentation review only. Existing OAuth unit tests are mocked.
 
 **Hosted results:** Push run [41211956913](https://github.com/Ameerzan1984/CineCrew/actions/runs/41211956913) and PR run [41211961861](https://github.com/Ameerzan1984/CineCrew/actions/runs/41211961861) passed Migration 018, PostgreSQL integration and all 12 desktop/mobile Playwright cases. The prior run on `f305db9` failed only because the scene-order test submitted shot two before shot one had completed; the test now waits for each successful response and persisted item count. No ChatGPT, LLM, Higgsfield or paid generation call was made.
 
-## 2026-10-31 - Generation worker lease renewal hardening (hosted CI pending)
+## 2026-10-31 - Generation worker lease renewal hardening (hosted CI passed)
 
 **Change:** Added a token-checked lease renewal API. Renewal, completion and failure now lock the job row before checking lease expiry against PostgreSQL's wall clock, preventing a transaction that waited on a lock from acting on a lease that expired while waiting. Added a PostgreSQL test that holds a job-row lock past expiry while renewal waits, and updated the worker documentation. This remains an internal scheduler primitive; no gateway, Higgsfield, or storage dispatch was connected.
 
@@ -240,8 +240,16 @@ This was a code/documentation review only. Existing OAuth unit tests are mocked.
 
 **Hosted results:** The first two attempts exposed test-harness issues: the first used a resource at its default concurrency of one, and the second relied on activity-view polling that did not reliably detect the blocked sessions. The test now gives its resource three concurrent slots, holds all job rows past the lease expiry, and asserts all three operation threads remain blocked before releasing them. Final push run [41213190169](https://github.com/Ameerzan1984/CineCrew/actions/runs/41213190169) and PR run [41213194279](https://github.com/Ameerzan1984/CineCrew/actions/runs/41213194279) passed all 12 scheduler tests, 15 Film Engine tests, the render-worker test and 12 desktop/mobile E2E cases. No real provider or paid request was made.
 
-## 2026-10-31 - Whole-catalog Discover search (hosted CI pending)
+## 2026-10-31 - Whole-catalog Discover search (hosted CI passed)
 
 **Change:** Discover now sends a debounced query to `/api/discover`; stale requests are aborted. The API bounds input to 100 characters, searches published films' title, premise, genre and filmmaker name case-insensitively, preserves the published/not-hidden/saved-render filters, and applies the 60-result cap after filtering. PostgreSQL continuation coverage includes draft, hidden and no-render exclusions, long-input rejection, field matches and a matching film outside the newest 60. Desktop/mobile Playwright coverage searches a published film and checks a no-match state.
 
-**Local results:** 31/31 web unit tests passed; TypeScript, Next.js production build, continuation-script syntax and Playwright discovery (14 desktop/mobile cases) passed. PostgreSQL continuation and browser E2E were not executed locally because this Windows checkout has no PostgreSQL service or running CineMesh app. Hosted CI is pending. This change adds no provider calls.
+**Local results:** 31/31 web unit tests passed; TypeScript, Next.js production build, continuation-script syntax and Playwright discovery (14 desktop/mobile cases) passed. PostgreSQL continuation and browser E2E were not executed locally because this Windows checkout has no PostgreSQL service or running CineMesh app. This change adds no provider calls.
+
+**Hosted results:** The first run failed because the 61 test catalog films remained present during a later empty-portfolio assertion. Commit `a3be441` deletes those fixtures after the search checks. Push [41235136071](https://github.com/Ameerzan1984/CineCrew/actions/runs/41235136071) and PR [41235140884](https://github.com/Ameerzan1984/CineCrew/actions/runs/41235140884) then passed the complete PostgreSQL and desktop/mobile browser workflow.
+
+## 2026-10-31 - Higgsfield language access and MCP catalog
+
+Reviewed the official FNF SDK, Supercomputer changelog, credit and MCP guidance. The FNF language client is documented inside the supported Higgsfield app environment, with runtime model discovery and platform-attached identity; no external CineMesh bridge or verified account-specific model catalog was established. Supercomputer Auto's free text offer applies to that surface, not a proven standalone API. Details and sources are in [the access review](HIGGSFIELD_LLM_RESEARCH.md).
+
+Connections now displays searchable names, descriptions and saved input schemas from the signed-in user's MCP tool listing, without treating a listed tool as verified inference access. A browser test uses explicitly synthetic tool metadata; it is not evidence of a live MCP call. Local web unit tests (32) and production build passed. Real OAuth, text capability, language inference and any paid generation remain untested in this change.

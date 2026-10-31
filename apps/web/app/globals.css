@@ -121,3 +121,10 @@
 .agent-character-card p,.agent-run-library section p { margin:7px 0; color:#c4c1ce; font-size:11px; line-height:1.6; }
 .agent-run-library code { color:#b9a0ff; font-size:10px; overflow-wrap:anywhere; }
 .agent-run-library h4 { margin:16px 0 6px; }
+.mcp-catalog { margin:12px 0; min-width:0; }
+.mcp-catalog summary { cursor:pointer; overflow-wrap:anywhere; }
+.mcp-catalog label { display:grid; gap:6px; margin-top:12px; }
+.mcp-catalog input { width:100%; min-width:0; padding:10px; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:5px; }
+.mcp-catalog ul { max-height:420px; overflow:auto; padding-inline-start:20px; }
+.mcp-catalog li { margin:8px 0; }
+.mcp-catalog pre { max-width:100%; max-height:240px; overflow:auto; padding:10px; background:var(--bg); color:var(--text); font-size:11px; white-space:pre-wrap; overflow-wrap:anywhere; }
