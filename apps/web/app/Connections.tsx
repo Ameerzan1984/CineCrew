@@ -18,7 +18,34 @@ export default function Connections({ ar }: { ar: boolean }) {
  const [notice,setNotice]=useState(""), [chatGPTNotice,setChatGPTNotice]=useState(""), [busy,setBusy]=useState(false), [models,setModels]=useState<Array<{id:string;name:string}>>([]), [model,setModel]=useState("");
  async function refresh() { setStatus(await call("GET")); }
  async function refreshChatGPT() { setChatGPT(await callChatGPT()); }
- useEffect(()=>{ const result=new URLSearchParams(window.location.search).get("higgsfield_mcp"); if(result){setNotice(result==="connected"?(ar?"تم ربط Higgsfield MCP والتحقق منه بطلب قراءة الأدوات.":"Higgsfield MCP connected and verified with a read-only tools request."):(ar?"لم يكتمل اتصال Higgsfield MCP. أعد المحاولة وتأكد من إتمام التفويض.":"Higgsfield MCP could not be connected. Try again and complete the authorization step.")); const url=new URL(window.location.href); url.searchParams.delete("higgsfield_mcp"); window.history.replaceState({},"",url.toString());} refresh().catch(e=>setNotice(e.message)); refreshChatGPT().catch(e=>setChatGPTNotice(e.message)); },[]);
+ useEffect(()=>{
+  const params = new URLSearchParams(window.location.search);
+  const mcpResult = params.get("higgsfield_mcp");
+  const chatGPTResult = params.get("chatgpt");
+  if (mcpResult) setNotice(mcpResult === "connected"
+    ? (ar ? "تم ربط Higgsfield MCP والتحقق منه بطلب قراءة الأدوات." : "Higgsfield MCP connected and verified with a read-only tools request.")
+    : (ar ? "لم يكتمل اتصال Higgsfield MCP. أعد المحاولة وتأكد من إتمام التفويض." : "Higgsfield MCP could not be connected. Try again and complete the authorization step."));
+  if (chatGPTResult === "connected") setChatGPTNotice(ar
+    ? "اكتمل تفويض خطة ChatGPT. حدّث قائمة النماذج ثم اختبر طلبًا لغويًا قبل تشغيل الوكلاء."
+    : "ChatGPT plan access was authorized. Load the model catalog and test a language request before running agents.");
+  else if (chatGPTResult === "permission") setChatGPTNotice(ar
+    ? "تم التحقق من الهوية، لكن صلاحية استخدام خطة ChatGPT لم تُمنح. وافق على صلاحية الخطة لإتاحة النماذج."
+    : "Identity was verified, but ChatGPT plan usage was not authorized. Grant plan-use permission to load models.");
+  else if (chatGPTResult === "denied") setChatGPTNotice(ar
+    ? "أُلغي تفويض ChatGPT. لا توجد جلسة خطة محفوظة."
+    : "ChatGPT authorization was declined. No plan session was saved.");
+  else if (chatGPTResult === "failed") setChatGPTNotice(ar
+    ? "لم يكتمل رجوع OAuth إلى CineMesh. افحص أن التطبيق المحلي يعمل على المنفذ 3000 ثم أعد المحاولة."
+    : "OAuth did not return successfully to CineMesh. Check that the local app is running on port 3000, then try again.");
+  if (mcpResult || chatGPTResult) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("higgsfield_mcp");
+    url.searchParams.delete("chatgpt");
+    window.history.replaceState({}, "", url.toString());
+  }
+  refresh().catch(e=>setNotice(e.message));
+  refreshChatGPT().catch(e=>setChatGPTNotice(e.message));
+ },[]);
  async function submit(event: React.FormEvent<HTMLFormElement>) {
   event.preventDefault(); const form=event.currentTarget, fields=new FormData(form); setBusy(true); setNotice("");
   try { await call("POST",{action:"save",apiKey:fields.get("apiKey")}); form.reset(); await refresh(); setNotice(ar ? "تم حفظ مفتاح API مشفرًا. سيتحقق الاتصال عند أول طلب حقيقي." : "API key saved encrypted. A real provider request will verify it; saving alone does not verify access."); } catch(e) { setNotice((e as Error).message); } finally { setBusy(false); }

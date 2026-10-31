@@ -214,4 +214,12 @@ Completed agent runs now display their persisted character/personality/relations
 
 **Coverage added:** The PostgreSQL continuation scenario tests up, down, persisted order, boundary rejection and editor permission denial. Desktop/mobile Playwright creates two owned shots, moves one, reloads, and checks persisted order.
 
-**Local results:** `npm run test:unit` passed 31/31; `npm run lint` and `npm run build` passed; integration and E2E files passed `node --check`; Playwright discovers 12 desktop/mobile cases; `git diff --check` passed. The new DB-backed continuation and browser flows did not run locally because this Windows environment has no PostgreSQL service or app process. Hosted CI has not run yet. No live ChatGPT/LLM/Higgsfield request or paid generation was made.
+**Local results:** `npm run test:unit` passed 31/31; `npm run lint` and `npm run build` passed; integration and E2E files passed `node --check`; Playwright discovers 12 desktop/mobile cases; `git diff --check` passed. The new DB-backed continuation and browser flows did not run locally because this Windows environment has no PostgreSQL service or app process.
+
+**Hosted results:** CI run [41210529706](https://github.com/Ameerzan1984/CineCrew/actions/runs/41210529706) passed the PostgreSQL continuation and all desktop/mobile Playwright tests. No live ChatGPT/LLM/Higgsfield request or paid generation was made.
+
+## 2026-10-31 — Official Sign in with ChatGPT flow comparison
+
+Reviewed OpenAI's current official [open-source OAuth flow](https://developers.openai.com/siwc/token-sharing-open-source), [registration and sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in), [sessions and refresh](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions), and [models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference) pages. The implementation matches documented dynamic registration, `ext_agent_host_id`, issued client ID retention, scope validation, identical loopback callback/resource during token exchange, refresh, `/v1/models` account catalog, and `/v1/responses` streaming through `response.completed`. The Connections UI now reports callback outcomes and strips the one-time result from the URL.
+
+This was a code/documentation review only. Existing OAuth unit tests are mocked. The local app and PostgreSQL service are not running, so browser approval, actual account model discovery and a Responses request remain untested. No client/user tokens were read or sent, and no LLM or paid provider request was made.
