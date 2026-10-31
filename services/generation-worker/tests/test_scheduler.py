@@ -5,6 +5,8 @@
 # Licensed under the Apache License, Version 2.0
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -116,3 +118,95 @@ def test_expired_lease_cannot_be_used_after_sweep(pg_scheduler):
     with pytest.raises(ValueError):
         s.finish(job, claim['lease_token'], 10, 'private/object')
     assert s.progress(actor, project) == {'uncertain': 1}
+
+
+def test_lease_renewal_requires_current_unexpired_token(pg_scheduler):
+    s, actor, project = pg_scheduler
+    resource = s.register_resource(actor, 'test-provider', ['video'], 'USD')
+    s.grant(actor, project, resource, 100)
+    job = s.enqueue(actor, project, 'shot-1', 'request-1', 'video', 'USD', 60)
+    claim = s.claim(project, lease_seconds=30)
+    with s.connect() as conn, conn.cursor() as cur:
+        cur.execute('SELECT lease_until FROM generation_jobs WHERE id=%s', (job,))
+        original_expiry = cur.fetchone()['lease_until']
+    renewed_expiry = s.renew_lease(job, claim['lease_token'], lease_seconds=60)
+    assert renewed_expiry > original_expiry
+    with pytest.raises(ValueError, match='stale lease'):
+        s.renew_lease(job, str(uuid4()))
+    with pytest.raises(ValueError, match='invalid lease'):
+        s.renew_lease(job, claim['lease_token'], lease_seconds=0)
+    with s.connect() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE generation_jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=%s", (job,))
+    with pytest.raises(ValueError, match='stale lease'):
+        s.renew_lease(job, claim['lease_token'])
+    with pytest.raises(ValueError, match='stale lease'):
+        s.finish(job, claim['lease_token'], 10, 'private/object')
+    with pytest.raises(ValueError, match='stale lease'):
+        s.fail(job, claim['lease_token'], definitive=True)
+    assert s.expire_leases() == [job]
+    assert s.progress(actor, project) == {'uncertain': 1}
+
+
+def test_lease_operations_recheck_expiry_after_row_lock_wait(pg_scheduler):
+    s, actor, project = pg_scheduler
+    resource = s.register_resource(actor, 'test-provider', ['video'], 'USD')
+    s.grant(actor, project, resource, 300)
+    claims = []
+    for index in range(3):
+        job = s.enqueue(actor, project, f'shot-{index}', f'request-{index}', 'video', 'USD', 20)
+        claims.append({'job': job, 'claim': s.claim(project, lease_seconds=3)})
+    assert all(item['claim'] and item['claim']['job_id'] == item['job'] for item in claims)
+
+    outcome = []
+    actions = [
+        lambda item: s.renew_lease(item['job'], item['claim']['lease_token'], lease_seconds=30),
+        lambda item: s.finish(item['job'], item['claim']['lease_token'], 10, 'private/object'),
+        lambda item: s.fail(item['job'], item['claim']['lease_token'], definitive=True),
+    ]
+
+    with s.connect() as blocker, blocker.cursor() as cur:
+        for item in claims:
+            cur.execute('SELECT id FROM generation_jobs WHERE id=%s FOR UPDATE', (item['job'],))
+            cur.execute('SELECT lease_until > clock_timestamp() AS active FROM generation_jobs WHERE id=%s', (item['job'],))
+            assert cur.fetchone()['active']
+
+        workers = []
+        for action, item in zip(actions, claims):
+            started = threading.Event()
+
+            def run(action=action, item=item, started=started):
+                started.set()
+                try:
+                    action(item)
+                    outcome.append('completed')
+                except ValueError as exc:
+                    outcome.append(str(exc))
+
+            worker = threading.Thread(target=run)
+            workers.append((worker, started))
+            worker.start()
+        assert all(started.wait(timeout=1) for _, started in workers)
+        deadline = time.monotonic() + 5
+        waiting_count = 0
+        while time.monotonic() < deadline:
+            cur.execute('''SELECT EXISTS (
+                SELECT 1 FROM pg_stat_activity
+                WHERE wait_event_type='Lock'
+                  AND query LIKE 'SELECT id FROM generation_jobs%'
+            ) AS waiting''')
+            if cur.fetchone()['waiting']:
+                cur.execute('''SELECT count(*) AS waiting FROM pg_stat_activity
+                    WHERE wait_event_type='Lock'
+                      AND query LIKE 'SELECT id FROM generation_jobs%'
+                ''')
+                waiting_count = cur.fetchone()['waiting']
+            if waiting_count >= len(workers):
+                break
+            time.sleep(0.02)
+        if waiting_count >= len(workers):
+            time.sleep(3.1)
+    for worker, _ in workers:
+        worker.join(timeout=5)
+        assert not worker.is_alive(), 'lease operation remained blocked after the row lock was released'
+    assert waiting_count >= len(workers), 'lease operations did not all block on held job rows'
+    assert outcome == ['stale lease'] * len(workers)

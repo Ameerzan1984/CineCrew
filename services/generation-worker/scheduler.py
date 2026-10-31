@@ -115,14 +115,36 @@ class Scheduler:
                 return {'job_id': str(job['id']), 'project_id': str(project), 'shot_id': job['shot_id'], 'resource_id': str(chosen['resource_id']), 'resource_owner_id': str(chosen['owner_id']), 'provider_request_key': str(job['provider_request_key']), 'lease_token': token, 'capability': job['capability']}
         return None
 
+    def renew_lease(self, job_id, token, lease_seconds=300):
+        """Extend only the current, unexpired worker lease; never revive a stale claim."""
+        if not isinstance(lease_seconds, int) or isinstance(lease_seconds, bool) or not 1 <= lease_seconds <= 3600:
+            raise ValueError('invalid lease')
+        with self.connect() as conn, conn.cursor() as cur:
+            # Lock before checking expiry so a waiter cannot pass a check evaluated
+            # before it waited on another transaction's row lock.
+            cur.execute('SELECT id FROM generation_jobs WHERE id=%s FOR UPDATE', (job_id,))
+            if not cur.fetchone():
+                raise ValueError('stale lease')
+            cur.execute('''UPDATE generation_jobs
+                SET lease_until=clock_timestamp()+(%s * interval '1 second'),updated_at=clock_timestamp()
+                WHERE id=%s AND status='running' AND lease_token=%s AND lease_until > clock_timestamp()
+                RETURNING lease_until''', (lease_seconds, job_id, token))
+            row = cur.fetchone()
+            if not row:
+                raise ValueError('stale lease')
+            return row['lease_until']
+
     def finish(self, job_id, token, actual_micros, result_ref):
         """Record actual provider charges, including an unexpected overrun."""
         if actual_micros < 0 or not result_ref:
             raise ValueError('invalid result')
         with self.connect() as conn, conn.cursor() as cur:
-            cur.execute('SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE', (job_id,))
+            cur.execute('SELECT id FROM generation_jobs WHERE id=%s FOR UPDATE', (job_id,))
+            if not cur.fetchone():
+                raise ValueError('stale lease')
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s AND status='running' AND lease_token=%s AND lease_until > clock_timestamp() FOR UPDATE", (job_id, token))
             job = cur.fetchone()
-            if not job or job['status'] != 'running' or str(job['lease_token']) != str(token):
+            if not job:
                 raise ValueError('stale lease')
             cur.execute('UPDATE generation_grants SET reserved_micros=reserved_micros-%s,spent_micros=spent_micros+%s WHERE id=%s', (job['estimated_micros'], actual_micros, job['grant_id']))
             cur.execute('INSERT INTO generation_ledger (id,job_id,grant_id,actual_micros,currency) VALUES (%s,%s,%s,%s,%s)', (_id(), job_id, job['grant_id'], actual_micros, job['currency']))
@@ -131,9 +153,12 @@ class Scheduler:
     def fail(self, job_id, token, definitive):
         """Retry only definitive failures; uncertain outcomes keep funds reserved."""
         with self.connect() as conn, conn.cursor() as cur:
-            cur.execute('SELECT * FROM generation_jobs WHERE id=%s FOR UPDATE', (job_id,))
+            cur.execute('SELECT id FROM generation_jobs WHERE id=%s FOR UPDATE', (job_id,))
+            if not cur.fetchone():
+                raise ValueError('stale lease')
+            cur.execute("SELECT * FROM generation_jobs WHERE id=%s AND status='running' AND lease_token=%s AND lease_until > clock_timestamp() FOR UPDATE", (job_id, token))
             job = cur.fetchone()
-            if not job or job['status'] != 'running' or str(job['lease_token']) != str(token):
+            if not job:
                 raise ValueError('stale lease')
             if not definitive:
                 cur.execute("UPDATE generation_jobs SET status='uncertain',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE id=%s", (job_id,))

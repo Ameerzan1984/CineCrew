@@ -11,11 +11,17 @@ CineMesh شبكة اجتماعية واستوديو لإنتاج الأفلام 
 ## حقائق عن المستودع
 
 - المستودع هو `Ameerzan1984/CineCrew`، والفرع المقصود `cinemesh`.
-- هذه الجولة بدأت من commit `6e860df` على الفرع `cinemesh`؛ والهدف هو التشغيل والتحقق، لا إعادة تأسيس المنتج.
+- الجولة الحالية بدأت من commit `d93e5d7` على الفرع `cinemesh`؛ وهو الأحدث من المراجع الأقدم في الطلبات والوثائق التاريخية.
 - الأساس التاريخي لمرحلة CineMesh بدأ من `b3f03bd`. المقصود بذاكرة كل جولة أن تسجل Commit البداية ورأس الفرع الفعلي.
 - Pull Request المعروف إلى `main`: [PR #1](https://github.com/Ameerzan1984/CineCrew/pull/1)، لم يدمج تلقائيًا.
 - يجب صون CineCrew الأصلي وترخيص Apache-2.0 ونسب المصدر. مكونات CineMesh تجريبية.
 - التجارب ووسائطها المحلية موجودة ضمن `data/` و`apps/web/.data/`؛ هذه المسارات مستثناة من Git. لا ترفع الوسائط أو الأسرار أو ملفات `.env`.
+
+## Worker lease hardening (2026-10-31; pending hosted CI)
+
+The current working change adds `renew_lease`, and requires the matching running job's lease to remain valid before renewal, finish, or failure. A review found that time predicates placed in a row-locking query could be evaluated before PostgreSQL waits on another transaction. The implementation now locks the job row first, then checks expiry against `clock_timestamp()` while holding the lock. A new PostgreSQL integration test deliberately holds that lock until the lease expires and expects renewal to fail as stale.
+
+Local verification so far: worker module compilation passed, three pure scheduling-policy tests passed, and `git diff --check` passed. Full worker test collection cannot run in this local Python environment because `fastapi.testclient` is unavailable; there is no local PostgreSQL service. The expiry race integration test therefore still needs hosted CI. This is a scheduler safety primitive only: no provider worker, gateway dispatch, or live generation was added.
 
 ## ما ثبت أنه يعمل
 
