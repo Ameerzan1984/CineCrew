@@ -82,8 +82,10 @@ export class HiggsfieldApiClient {
     if (!modelPathPattern.test(modelPath) || modelPath.split("/").some(part => part === "." || part === "..") || modelPath.startsWith("/requests/")) {
       throw new ProviderStateError("Invalid model endpoint path.");
     }
-    // The estimate route/shape are not confirmed in the model API references we
-    // reviewed. Keep this adapter fail-closed until a live account verifies it.
+    // Higgsfield documents that API requests can be estimated before generation,
+    // but its public SDK/model reference does not publish this REST route or shape.
+    // Treat only a successful exact-USD response as a quote and fail closed otherwise;
+    // unit-test mocks do not establish that a real account exposes this estimate.
     const raw = await this.call(`${API_ORIGIN}/estimate${modelPath}`, "POST", body);
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ProviderStateError("Higgsfield returned an invalid cost estimate.");
     const quote = raw as Record<string, unknown>;

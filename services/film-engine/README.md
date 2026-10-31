@@ -15,8 +15,10 @@ uvicorn app.main:app --reload --port 8001
 Set `FILM_ENGINE_SERVICE_TOKEN` to a strong secret in the process environment and send it in the `X-Cinemesh-Service-Token` header for all routes except `/health`. Without the secret, protected routes fail closed. The generated OpenAPI reference is protected as well. The SQLite database defaults to `./data/film-engine.db`; set `CINEMESH_ENGINE_DB` to an absolute writable path to change it. SQLite is intended for local development, not a distributed deployment. Persist the data directory when running in a container.
 
 ```sh
-pytest -q
+python -m pytest -q
 ```
+
+The repository root is added to pytest's import path so the tests can load CineCrew's `src` package while the working directory remains this service.
 
 ## API
 

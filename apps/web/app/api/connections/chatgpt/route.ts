@@ -6,7 +6,7 @@ import { allowedOrigin } from "../../../../lib/origin";
 import { decryptChatGPTSecret, encryptChatGPTSecret } from "../../../../lib/chatgpt-vault";
 import { chatGPTAccessToken } from "../../../../lib/chatgpt-plan-credentials";
 import {
-  buildAuthorizationUrl, ChatGPTTokens, hashState, opaqueValue,
+  buildAuthorizationUrl, ChatGPTTokens, hasChatGPTPlanScopes, hashState, opaqueValue, validateChatGPTRedirectUri,
   revokeChatGPTRefreshToken, listChatGPTModels, testChatGPTResponse,
 } from "../../../../lib/chatgpt-plan-oauth";
 
@@ -17,11 +17,7 @@ const newClient = "dynamic_agent_client";
 
 function redirectUri() {
   const value = process.env.CHATGPT_REDIRECT_URI ?? "http://127.0.0.1:3000/api/connections/chatgpt/callback";
-  const parsed = new URL(value);
-  if (parsed.protocol !== "http:" || parsed.hostname !== "127.0.0.1" || parsed.pathname !== "/api/connections/chatgpt/callback" || parsed.search || parsed.hash) {
-    throw new Error("CHATGPT_REDIRECT_URI must use the local 127.0.0.1 callback on port 3000");
-  }
-  return value;
+  return validateChatGPTRedirectUri(value);
 }
 
 export async function GET() {
@@ -33,7 +29,7 @@ export async function GET() {
     return json({
       vaultReady: !!(process.env.CHATGPT_VAULT_KEY || process.env.HIGGSFIELD_VAULT_KEY),
       connected: !!row,
-      account: row ? { email: row.email, name: row.display_name, planUsageEnabled: row.scopes.includes("chatgpt.tokens.use.direct"), lastInferenceAt: row.last_inference_at, connectedAt: row.updated_at } : null,
+      account: row ? { email: row.email, name: row.display_name, planUsageEnabled: hasChatGPTPlanScopes(row.scopes), lastInferenceAt: row.last_inference_at, connectedAt: row.updated_at } : null,
       usageUrl: "https://chatgpt.com/settings/usage",
     });
   } catch { return json({ error: "ChatGPT connection settings unavailable" }, 503); }

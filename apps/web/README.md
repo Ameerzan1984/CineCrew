@@ -18,7 +18,7 @@ npm run db:migrate
 npm run dev
 ```
 
-For the local container stack on Windows, run `.\apps\web\scripts\init-local-compose-env.ps1` from the repository root, then `docker compose up --build -d`. The script creates fresh local database, service-authentication, and vault secrets in the Git-ignored `.env` file and never prints their values. The Compose migration service applies database migrations before the web app starts. Docker Desktop must be installed and running.
+For the local container stack on Windows, run `.\apps\web\scripts\init-local-compose-env.ps1` from the repository root, then `docker compose up --build -d`. The script creates fresh local database, service-authentication, and separate ChatGPT/Higgsfield vault keys in the Git-ignored `.env` file and never prints their values. The Compose migration service applies database migrations before the web app starts. Docker Desktop must be installed and running.
 
 Production cookies are Secure unless `APP_ORIGIN` explicitly names a loopback HTTP origin. Use HTTPS for non-loopback deployments. Keep the engine private; configure durable storage and backups for PostgreSQL, the engine's SQLite directory, and the media volume. The engine link creates a separate engine record and cannot commit atomically with PostgreSQL, so a network failure after creation may leave an orphan and requires reconciliation before retrying. Advance requests use idempotency keys; the browser retains an outstanding key in session storage across reloads of the same tab.
 
@@ -34,6 +34,9 @@ The optional ChatGPT-plan connection uses OpenAI's current open-source Sign in w
 
 Run `npm run test:unit`, `npm run lint` and `npm run build` for pure unit, TypeScript and production-build checks. For integration tests, start the web app and engine with a **disposable** PostgreSQL database, run migrations, set `HIGGSFIELD_VAULT_KEY`, and set `CINEMESH_TEST_URL` to the app's loopback HTTP origin (including port); then run `npm run test:integration`. The test creates disposable accounts and records and submits only dummy provider credentials. Do not point it at a production database.
 
-For the two-contributor continuation regression, also set `CINEMESH_TEST_DATABASE_URL` explicitly to that same disposable database and run `npm run test:continuation`. It checks ownership and scene ordering using an expired provider URL, so it does not call Higgsfield or spend credits. It requires the test app's database migrations and vault key to be configured.
+For the two-contributor continuation regression, also set `CINEMESH_TEST_DATABASE_URL` explicitly to that same disposable database and run `npm run test:continuation`. It checks ownership and scene ordering using an expired provider URL, so it does not call Higgsfield or spend credits. It requires the test app's database migrations and Higgsfield vault key to be configured.
 
 This account implementation is a development foundation, not hardened for public deployment. Registration indicates when an email is already registered; email verification and password recovery are not implemented. Login attempts are serialized and limited per email, but a trusted gateway still needs per-source rate limiting and abuse controls to protect registration and prevent targeted account lockouts.
+
+
+With the provided Compose stack, run both integration tests inside the web container so the test process can reach the private PostgreSQL service by its Compose hostname. From the repository root, run `docker compose exec -e CINEMESH_TEST_URL=http://127.0.0.1:3000 web sh -c 'export CINEMESH_TEST_DATABASE_URL="$DATABASE_URL"; npm run test:integration && npm run test:continuation'`. The database and test records must remain disposable.

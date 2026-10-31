@@ -6,7 +6,22 @@ const authorizationEndpoint = `${issuer}/api/accounts/authorize`;
 const tokenEndpoint = `${issuer}/api/accounts/oauth/token`;
 const resource = "https://api.openai.com/v1";
 const scopes = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
+export const CHATGPT_PLAN_SCOPES = ["offline_access", "resource.invoke", "chatgpt.tokens.use.direct"] as const;
 const jwks = createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`));
+const callbackPath = "/api/connections/chatgpt/callback";
+
+export function hasChatGPTPlanScopes(granted: readonly string[]) {
+  return CHATGPT_PLAN_SCOPES.every(scope => granted.includes(scope));
+}
+
+export function validateChatGPTRedirectUri(value: string) {
+  const parsed = new URL(value);
+  if (parsed.protocol !== "http:" || parsed.hostname !== "127.0.0.1" || parsed.port !== "3000" ||
+      parsed.pathname !== callbackPath || parsed.search || parsed.hash) {
+    throw new Error("CHATGPT_REDIRECT_URI must use http://127.0.0.1:3000 with the CineMesh callback path");
+  }
+  return value;
+}
 
 export type OAuthTransaction = {
   nonce: string;
@@ -84,12 +99,11 @@ export async function exchangeAuthorizationCode(code: string, transaction: OAuth
   if (!response.ok) throw new Error(`ChatGPT token exchange failed (HTTP ${response.status})`);
   const result = await response.json() as Record<string, unknown>;
   const granted = typeof result.scope === "string" ? result.scope.split(/\s+/).filter(Boolean) : [];
-  if (typeof result.access_token !== "string" || typeof result.refresh_token !== "string" || typeof result.id_token !== "string" || typeof result.expires_in !== "number") {
+  if (typeof result.access_token !== "string" || !result.access_token || typeof result.refresh_token !== "string" || !result.refresh_token ||
+      typeof result.id_token !== "string" || !result.id_token || typeof result.expires_in !== "number" || !Number.isFinite(result.expires_in) || result.expires_in <= 0) {
     throw new Error("ChatGPT did not return the required plan-usage credentials");
   }
-  if (!granted.includes("chatgpt.tokens.use.direct") || !granted.includes("offline_access")) {
-    throw new Error("Grant ChatGPT plan usage and offline access to connect CineMesh");
-  }
+  if (!hasChatGPTPlanScopes(granted)) throw new Error("Required ChatGPT plan usage scopes were not granted (offline access, response invocation, and plan usage are required)");
   return {
     tokens: {
       access_token: result.access_token,
@@ -127,15 +141,18 @@ export async function refreshChatGPTTokens(clientId: string, refreshToken: strin
   });
   if (!response.ok) throw new Error(`ChatGPT token refresh failed (HTTP ${response.status})`);
   const result = await response.json() as Record<string, unknown>;
-  if (typeof result.access_token !== "string" || typeof result.refresh_token !== "string" || typeof result.expires_in !== "number") {
+  if (typeof result.access_token !== "string" || !result.access_token || typeof result.refresh_token !== "string" || !result.refresh_token ||
+      typeof result.expires_in !== "number" || !Number.isFinite(result.expires_in) || result.expires_in <= 0) {
     throw new Error("ChatGPT returned an invalid refreshed credential set");
   }
+  const granted = typeof result.scope === "string" ? result.scope.split(/\s+/).filter(Boolean) : [];
+  if (!hasChatGPTPlanScopes(granted)) throw new Error("ChatGPT refresh did not retain the required plan usage scopes; reconnect the account");
   return {
     access_token: result.access_token,
     refresh_token: result.refresh_token,
     id_token: typeof result.id_token === "string" ? result.id_token : undefined,
     expires_at: Date.now() + result.expires_in * 1000,
-    scopes: typeof result.scope === "string" ? result.scope.split(/\s+/).filter(Boolean) : undefined,
+    scopes: granted,
   };
 }
 
