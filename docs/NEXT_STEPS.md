@@ -61,7 +61,7 @@
 
 ### Latest implementation checkpoint (2026-10-31, based on commit 7f6a7a5)
 
-Discover publishing and a GitHub Actions PostgreSQL/Playwright workflow were added after the earlier verification note. Local web unit/type/build and provider/engine/worker tests pass as recorded in `EXPERIMENT_LOG.md`; DB integration was not run locally. The workflow is authored but its first hosted execution is pending push.
+Discover publishing and a GitHub Actions PostgreSQL/Playwright workflow were added after the earlier verification note. Local web unit/type/build and provider/engine/worker tests pass as recorded in `EXPERIMENT_LOG.md`; no local DB was started. The hosted PostgreSQL integration and desktop/mobile Playwright flow later passed in run 41192626181.
 
 1. Push the current `cinemesh` change and inspect the `CineMesh CI` check on PR #1. Fix failures and wait for the workflow to complete before claiming DB-backed publication or E2E acceptance.
 2. Once CI passes, run the real ChatGPT sign-in in the locally running app only after the user's browser consent. Verify connection, account model list, a live Responses request, then a real CineCrew idea-to-FilmDSL run. Record failures and prove checkpoint restoration; do not submit a provider job in this step.
@@ -80,9 +80,9 @@ Discover publishing and a GitHub Actions PostgreSQL/Playwright workflow were add
 
 ## Latest checkpoint — 2026-10-31
 
-The hosted PostgreSQL CI verified migrations and the auth/collaboration integration after correcting test-only assumptions. Published Discover now has like/unlike and comments backed by PostgreSQL with publication-aware read/write access. The web unit tests, TypeScript check and production build pass locally. Push the pending social-action change, wait for its PostgreSQL + Playwright run, and fix any failures. Then continue with user profiles/Watch details and reliable background generation; live OAuth/model and Higgsfield account checks still need the user's official browser authorization and approved credentials, and paid generation still requires per-request consent.
+The hosted PostgreSQL CI now passes migrations, auth/collaboration/publication/social integration, and desktop/mobile Playwright persistence + RTL checks (run 41192626181). Published Discover supports saved-render playback, search, likes and comments. Continue with user profiles and Watch-film details, then durable background generation; live OAuth/model and Higgsfield account checks still need official browser authorization and approved credentials, and paid generation still requires per-request consent.
 
 
 ### CI follow-up
 
-Run `04e0fbd` passed database migrations, web unit/type/build, provider, CineCrew engine, scheduling and render checks; auth/collaboration integration also passed. The continuation integration found a missing `DELETE` export, now fixed locally along with richer test diagnostics. Push the fix and wait for a clean PostgreSQL + Playwright run before recording social integration as verified.
+Run `2673511` passed database migrations, web unit/type/build, provider, CineCrew engine, scheduling/render checks, both PostgreSQL integration scripts, and Playwright persistence/RTL tests on desktop and mobile. Continue with profile and Watch-film details. Live OAuth and paid provider generation remain unverified.
