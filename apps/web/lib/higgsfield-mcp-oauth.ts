@@ -258,6 +258,38 @@ function safeToolInputSchema(value: unknown): Record<string, unknown> | null {
   } catch { return null; }
 }
 
+type McpToolPage = {
+  tools: Array<{ name: string; description?: string; inputSchema?: unknown }>;
+  nextCursor?: string;
+};
+
+export async function collectHiggsfieldMcpTools(
+  listPage: (cursor?: string) => Promise<McpToolPage>,
+): Promise<HiggsfieldMcpTool[]> {
+  const tools: HiggsfieldMcpTool[] = [];
+  const names = new Set<string>();
+  const cursors = new Set<string>();
+  let cursor: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const result = await listPage(cursor);
+    for (const tool of result.tools) {
+      if (!tool.name || names.has(tool.name)) throw new Error("Invalid or duplicate MCP tool name");
+      names.add(tool.name);
+      tools.push({
+        name: tool.name,
+        description: typeof tool.description === "string" ? tool.description.slice(0, 1000) : null,
+        inputSchema: safeToolInputSchema(tool.inputSchema),
+      });
+      if (tools.length > 2000) throw new Error("MCP tool catalog exceeds its size limit");
+    }
+    if (!result.nextCursor) return tools;
+    if (cursors.has(result.nextCursor)) throw new Error("MCP tool catalog repeated a cursor");
+    cursors.add(result.nextCursor);
+    cursor = result.nextCursor;
+  }
+  throw new Error("MCP tool catalog exceeds its page limit");
+}
+
 export async function inspectHiggsfieldMcpTools(accessToken: string): Promise<HiggsfieldMcpTool[]> {
   const client = new Client({ name: "CineMesh", version: "0.1.0" }, { capabilities: {} });
   const transport = new StreamableHTTPClientTransport(new URL(HIGGSFIELD_MCP_RESOURCE), {
@@ -266,12 +298,7 @@ export async function inspectHiggsfieldMcpTools(accessToken: string): Promise<Hi
   });
   try {
     await client.connect(transport);
-    const result = await client.listTools();
-    return result.tools.map(tool => ({
-      name: tool.name,
-      description: typeof tool.description === "string" ? tool.description.slice(0, 1000) : null,
-      inputSchema: safeToolInputSchema(tool.inputSchema),
-    }));
+    return await collectHiggsfieldMcpTools(cursor => client.listTools(cursor ? { cursor } : undefined));
   } finally {
     await transport.close().catch(() => undefined);
   }
