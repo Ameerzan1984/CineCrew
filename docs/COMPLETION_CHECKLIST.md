@@ -67,8 +67,8 @@ OAuth unit coverage and production build pass for identity-only consent, plan-us
 
 Run IDs and ownership are persisted in PostgreSQL, and the studio can discover run history from another browser. Only the creator's account may resume a run; film editors may inspect shared history. Full FilmDSL, outputs and stage checkpoints can now reside in the Film Engine's dedicated PostgreSQL schema. Import, checkpoint restoration across two FastAPI lifespans and concurrent idempotent advance passed hosted CI run 41201209615. Real process termination, database backup/restore, multi-replica recovery, OAuth and live model execution remain unverified.
 
-## Persistent film lists (2026-10-31; local checks passed, hosted CI pending)
+## Persistent film lists (2026-10-31; local and hosted CI passed)
 
 - Implemented Migration 017 and PostgreSQL-backed owner-only list management, public/private visibility, public discovery, rendered-film membership, and save-from-Watch UI.
 - Local evidence: 30 unit tests, TypeScript, production build, integration-script syntax, Playwright discovery (12 desktop/mobile tests), and `git diff --check` pass.
-- Still pending: PostgreSQL continuation integration and Playwright execution on desktop/mobile. Docker and local PostgreSQL are unavailable in this Windows environment; do not mark the slice complete until hosted CI passes.
+- Hosted evidence: push run [41208378509](https://github.com/Ameerzan1984/CineCrew/actions/runs/41208378509) and PR run [41208384064](https://github.com/Ameerzan1984/CineCrew/actions/runs/41208384064) passed migration, PostgreSQL-backed continuation tests, and desktop/mobile Playwright. The workflow used ephemeral CI PostgreSQL; this Windows checkout has no local database or Docker.
