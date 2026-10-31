@@ -187,27 +187,11 @@ def test_lease_operations_recheck_expiry_after_row_lock_wait(pg_scheduler):
             workers.append((worker, started))
             worker.start()
         assert all(started.wait(timeout=1) for _, started in workers)
-        deadline = time.monotonic() + 5
-        waiting_count = 0
-        while time.monotonic() < deadline:
-            cur.execute('''SELECT EXISTS (
-                SELECT 1 FROM pg_stat_activity
-                WHERE wait_event_type='Lock'
-                  AND query LIKE 'SELECT id FROM generation_jobs%'
-            ) AS waiting''')
-            if cur.fetchone()['waiting']:
-                cur.execute('''SELECT count(*) AS waiting FROM pg_stat_activity
-                    WHERE wait_event_type='Lock'
-                      AND query LIKE 'SELECT id FROM generation_jobs%'
-                ''')
-                waiting_count = cur.fetchone()['waiting']
-            if waiting_count >= len(workers):
-                break
-            time.sleep(0.02)
-        if waiting_count >= len(workers):
-            time.sleep(3.1)
+        time.sleep(0.1)
+        assert all(worker.is_alive() for worker, _ in workers), 'lease operation escaped a held job-row lock'
+        time.sleep(3.1)
+        assert all(worker.is_alive() for worker, _ in workers), 'lease operation completed while its job-row lock was held'
     for worker, _ in workers:
         worker.join(timeout=5)
         assert not worker.is_alive(), 'lease operation remained blocked after the row lock was released'
-    assert waiting_count >= len(workers), 'lease operations did not all block on held job rows'
     assert outcome == ['stale lease'] * len(workers)
