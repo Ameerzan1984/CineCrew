@@ -27,7 +27,7 @@ export async function GET() {
          WHERE a.film_id=f.id AND a.kind='film_render'
          ORDER BY a.created_at DESC,a.id DESC LIMIT 1
        ) render ON true
-       WHERE f.status='published'
+       WHERE f.status='published' AND f.moderation_hidden_at IS NULL
        ORDER BY f.updated_at DESC,f.id DESC
        LIMIT 60`,
       [user?.id ?? null],

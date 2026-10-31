@@ -10,10 +10,10 @@ const databaseUrl = process.env.CINEMESH_TEST_DATABASE_URL;
 if (!base || !/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(base)) throw Error("Set CINEMESH_TEST_URL to the local test app");
 if (!databaseUrl) throw Error("Set CINEMESH_TEST_DATABASE_URL to the app's disposable PostgreSQL database");
 
-async function request(path, method = "GET", data, cookie) {
+async function request(path, method = "GET", data, cookie, origin = base) {
   const response = await fetch(`${base}/api/${path}`, {
     method,
-    headers: { origin: base, ...(cookie ? { cookie } : {}), ...(data ? { "content-type": "application/json" } : {}) },
+    headers: { origin, ...(cookie ? { cookie } : {}), ...(data ? { "content-type": "application/json" } : {}) },
     ...(data ? { body: JSON.stringify(data) } : {}),
   });
   const rawBody = await response.text();
@@ -33,6 +33,31 @@ async function main() {
     const member = await request("auth/register", "POST", { name: "Second contributor", email: memberEmail, password });
     assert.equal(owner.status, 201); assert.ok(owner.cookie);
     assert.equal(member.status, 201); assert.ok(member.cookie);
+    let moderationAdmin;
+    const adminEmail = "cinemesh-ci-admin@example.test";
+    if ((process.env.CINEMESH_ADMIN_EMAILS || "").split(",").map(value => value.trim().toLowerCase()).includes(adminEmail)) {
+      const adminPassword = "CineMesh-CI-Admin-Test-Only-2026!";
+      moderationAdmin = await request("auth/register", "POST", { name: "CineMesh Test Moderator", email: adminEmail, password: adminPassword });
+      assert.equal(moderationAdmin.status, 201); assert.ok(moderationAdmin.cookie);
+      assert.equal((await request("admin/session")).status, 401);
+      assert.equal((await request("admin/reports")).status, 401);
+      assert.equal((await request("admin/session", "GET", undefined, owner.cookie)).status, 403);
+      assert.equal((await request("admin/reports", "GET", undefined, owner.cookie)).status, 403);
+      assert.equal((await request("reports", "POST", { targetType: "user", targetId: owner.body.id, category: "other" }, owner.cookie)).status, 400,
+        "Users cannot report themselves");
+      const userReport = await request("reports", "POST", { targetType: "user", targetId: member.body.id, category: "harassment", details: "A private report detail." }, owner.cookie);
+      assert.equal(userReport.status, 201);
+      assert.equal((await request("reports", "POST", { targetType: "user", targetId: member.body.id, category: "spam" }, owner.cookie)).status, 409,
+        "An active report cannot be duplicated by the same account");
+      const queue = await request("admin/reports", "GET", undefined, moderationAdmin.cookie);
+      assert.equal(queue.status, 200);
+      assert.equal(queue.body.reports[0].target_name, "Second contributor");
+      assert.equal("email" in queue.body.reports[0], false, "The moderation list never exposes reporter or target email");
+      assert.equal((await request("admin/reports", "POST", { reportId: userReport.body.report.id, action: "dismiss" }, owner.cookie)).status, 403);
+      assert.equal((await request("admin/reports", "POST", { reportId: userReport.body.report.id, action: "dismiss" }, moderationAdmin.cookie)).status, 200);
+      const audit = await pool.query("SELECT action FROM moderation_actions WHERE report_id=$1", [userReport.body.report.id]);
+      assert.deepEqual(audit.rows.map(row => row.action), ["dismiss"]);
+    }
     assert.equal((await request("notifications")).status, 401, "Notification access requires a CineMesh account");
 
     const film = await request("films", "POST", { title: "Continuation test", premise: "Two contributors create consecutive shots.", genre: "Drama", duration_minutes: 1, mode: "collaborative" }, owner.cookie);
@@ -175,6 +200,27 @@ async function main() {
       const initialComments = await request(`films/${filmId}/comments`);
       assert.equal(initialComments.status, 200); assert.deepEqual(initialComments.body.comments, []);
       assert.equal((await request(`films/${filmId}/comments`, "POST", { body: "Anonymous comment" })).status, 401);
+      if (moderationAdmin?.cookie) {
+        assert.equal((await request("reports", "POST", { targetType: "film", targetId: filmId, category: "copyright", details: "Check usage rights." }, member.cookie)).status, 201);
+        const filmReport = (await request("admin/reports", "GET", undefined, moderationAdmin.cookie)).body.reports.find(item => item.target_type === "film" && item.target_id === filmId);
+        assert.ok(filmReport, "A collaborator can report the shared published film");
+        assert.equal((await request("admin/reports", "POST", { reportId: filmReport.id, action: "hide_film" }, owner.cookie)).status, 403,
+          "Only the configured moderator may hide a reported film");
+        assert.equal((await request("admin/reports", "POST", { reportId: filmReport.id, action: "hide_film" }, moderationAdmin.cookie, "http://invalid.example")).status, 403,
+          "Moderation actions enforce request origin");
+        assert.equal((await request("admin/reports", "POST", { reportId: filmReport.id, action: "hide_film", note: "Policy review." }, moderationAdmin.cookie)).status, 200);
+        assert.equal((await request("discover")).body.films.some(item => item.id === filmId), false);
+        assert.equal((await request(`watch/${filmId}`)).status, 404);
+        assert.equal((await fetch(`${base}/api/media/${renderId}`)).status, 404, "A moderated render is no longer public");
+        const deniedRepublish = await request(`films/${filmId}/publish`, "POST", { action: "publish" }, owner.cookie);
+        assert.equal(deniedRepublish.status, 409);
+        assert.match(deniedRepublish.body.error, /moderator/i);
+        assert.equal((await request("admin/reports", "POST", { reportId: filmReport.id, action: "restore_film", note: "Reviewed and restored." }, moderationAdmin.cookie)).status, 200);
+        assert.equal((await request("discover")).body.films.some(item => item.id === filmId), true);
+        const actions = await pool.query("SELECT action FROM moderation_actions WHERE report_id=$1 ORDER BY created_at,id", [filmReport.id]);
+        assert.deepEqual(actions.rows.map(row => row.action), ["hide_film", "restore_film"]);
+        assert.equal((await request("admin/reports", "POST", { reportId: filmReport.id, action: "dismiss" }, moderationAdmin.cookie)).status, 200);
+      }
       const ownerLike = await request(`films/${filmId}/likes`, "POST", {}, owner.cookie);
       assert.equal(ownerLike.status, 200); assert.equal(ownerLike.body.likes_count, 1); assert.equal(ownerLike.body.liked_by_me, true);
       const duplicateLike = await request(`films/${filmId}/likes`, "POST", {}, owner.cookie);

@@ -35,7 +35,7 @@ export async function POST(request: NextRequest, context: Context) {
     try {
       await client.query("BEGIN");
       const film = await client.query(
-        "SELECT owner_id FROM films WHERE id=$1 FOR UPDATE",
+        "SELECT owner_id,moderation_hidden_at FROM films WHERE id=$1 FOR UPDATE",
         [filmId],
       );
       if (!film.rowCount || film.rows[0].owner_id !== user.id) {
@@ -45,6 +45,10 @@ export async function POST(request: NextRequest, context: Context) {
 
       const status = input.action === "publish" ? "published" : "draft";
       if (status === "published") {
+        if (film.rows[0].moderation_hidden_at) {
+          await client.query("ROLLBACK");
+          return json({ error: "A moderator must restore this film before it can be published" }, 409);
+        }
         const render = await client.query(
           "SELECT storage_key,size_bytes FROM media_assets WHERE film_id=$1 AND kind='film_render' ORDER BY created_at DESC LIMIT 1",
           [filmId],

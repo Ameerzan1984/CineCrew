@@ -18,7 +18,7 @@ export async function GET(request: NextRequest, context: Context) {
     if (!uuid.test(id)) return response(404);
     const found = await database().query(`SELECT a.storage_key,a.size_bytes,a.mime_type
       FROM media_assets a JOIN films f ON f.id=a.film_id WHERE a.id=$1 AND (
-        (f.status='published' AND a.kind='film_render') OR
+        (f.status='published' AND f.moderation_hidden_at IS NULL AND a.kind='film_render') OR
         ($2::uuid IS NOT NULL AND (f.owner_id=$2 OR EXISTS(
           SELECT 1 FROM film_contributors c WHERE c.film_id=f.id AND c.user_id=$2
         )))

@@ -91,7 +91,7 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
            WHERE a.film_id=f.id AND a.kind='film_render'
            ORDER BY a.created_at DESC,a.id DESC LIMIT 1
          ) render ON true
-         WHERE f.owner_id=$1 AND f.status='published'
+         WHERE f.owner_id=$1 AND f.status='published' AND f.moderation_hidden_at IS NULL
          ORDER BY f.updated_at DESC,f.id DESC LIMIT 60`, [path[1], user?.id ?? null]);
       return json({ profile: profileResult.rows[0], films: filmsResult.rows });
     }
@@ -111,7 +111,7 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
            WHERE a.film_id=f.id AND a.kind='film_render'
            ORDER BY a.created_at DESC,a.id DESC LIMIT 1
          ) render ON true
-         WHERE f.id=$1 AND f.status='published'`, [path[1], user?.id ?? null]);
+         WHERE f.id=$1 AND f.status='published' AND f.moderation_hidden_at IS NULL`, [path[1], user?.id ?? null]);
       if (!filmResult.rows[0]) return error("Film not found", 404);
       const credits = await db.query(
         `SELECT owner.id AS user_id,owner.display_name,'director'::text AS role
@@ -129,7 +129,7 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
          FROM comments c
          JOIN films f ON f.id=c.film_id
          JOIN users u ON u.id=c.author_id
-         WHERE c.film_id=$1 AND f.status='published'
+         WHERE c.film_id=$1 AND f.status='published' AND f.moderation_hidden_at IS NULL
          ORDER BY c.created_at ASC,c.id ASC
          LIMIT 100`, [path[1]]);
       return json({ comments: result.rows });
@@ -139,7 +139,7 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
       const client = await db.connect();
       try {
         await client.query("BEGIN");
-        const film = await client.query("SELECT id FROM films WHERE id=$1 AND status='published' FOR UPDATE", [path[1]]);
+        const film = await client.query("SELECT id FROM films WHERE id=$1 AND status='published' AND moderation_hidden_at IS NULL FOR UPDATE", [path[1]]);
         if (!film.rows[0]) { await client.query("ROLLBACK"); return error("Film not found", 404); }
         if (method === "POST") await client.query("INSERT INTO film_likes(film_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [path[1], user.id]);
         else await client.query("DELETE FROM film_likes WHERE film_id=$1 AND user_id=$2", [path[1], user.id]);
@@ -158,7 +158,7 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
       if (!comment) return error("Comment text is required (up to 2,000 characters)", 400);
       const result = await db.query(
         `INSERT INTO comments(id,film_id,author_id,body)
-         SELECT $1,f.id,$3,$4 FROM films f WHERE f.id=$2 AND f.status='published'
+         SELECT $1,f.id,$3,$4 FROM films f WHERE f.id=$2 AND f.status='published' AND f.moderation_hidden_at IS NULL
          RETURNING id,body,created_at`, [randomUUID(), path[1], user.id, comment]);
       if (!result.rows[0]) return error("Film not found", 404);
       return json({ comment: { ...result.rows[0], author_display_name: user.display_name } }, 201);

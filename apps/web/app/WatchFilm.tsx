@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import ReportForm from "./ReportForm";
 
 type WatchFilmData = {
   id: string; owner_id: string; title: string; premise: string; genre: string;
@@ -11,9 +12,10 @@ type WatchFilmData = {
 type Credit = { user_id: string; display_name: string; role: string };
 type Comment = { id: string; body: string; created_at: string; author_display_name: string };
 
-export default function WatchFilm({ filmId, ar, onBack, onProfile, onSignIn }: {
+export default function WatchFilm({ filmId, ar, canReport, onBack, onProfile, onSignIn }: {
   filmId: string;
   ar: boolean;
+  canReport: boolean;
   onBack: () => void;
   onProfile: (userId: string) => void;
   onSignIn: () => void;
@@ -93,6 +95,7 @@ export default function WatchFilm({ filmId, ar, onBack, onProfile, onSignIn }: {
           </div>)}</div>
         </section>
         <aside className="settings-card watch-social"><h2>{ar ? "\u0627\u0644\u0646\u0642\u0627\u0634" : "Join the conversation"}</h2>
+          {canReport && <ReportForm targetType="film" targetId={film.id} ar={ar} />}
           <button type="button" className="watch-like" aria-pressed={film.liked_by_me} disabled={busy} onClick={() => void toggleLike()}>
             {film.liked_by_me ? "♥" : "♡"} {film.likes_count} {ar ? "\u0625\u0639\u062c\u0627\u0628" : "likes"}
           </button>

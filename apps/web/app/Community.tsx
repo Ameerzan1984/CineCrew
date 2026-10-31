@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import ReportForm from "./ReportForm";
 
 type Person = { id: string; display_name: string; following: boolean; followers: number; blocked_by_me: boolean; blocked_you: boolean };
 type Invitation = { film_id: string; title: string; genre: string; role: "editor" | "viewer"; invited_by_name: string };
@@ -76,7 +77,8 @@ export default function Community({ ar, onFilmListChange, onProfile, onOpenMessa
     {notice && <p role="status">{notice}</p>}
     {users.length ? <div className="community-list">{users.map(person => <div className="settings-card member" key={person.id}>
       <div><strong>{person.display_name}</strong><p>{person.followers} {ar ? "متابعون" : "followers"}</p><button type="button" className="text-button" onClick={() => onProfile(person.id)}>{ar ? "\u0639\u0631\u0636 \u0627\u0644\u0645\u0644\u0641" : "View profile"}</button></div>
-+      <div className="member-actions">
+      <div className="member-actions">
+        <ReportForm targetType="user" targetId={person.id} ar={ar} />
         <button type="button" className="outline-button" disabled={busy || person.blocked_by_me || person.blocked_you} onClick={() => onOpenMessages(person.id, person.display_name)}>{ar ? "رسالة" : "Message"}</button>
         <button type="button" className="text-button" disabled={busy} onClick={() => toggleBlock(person)}>{person.blocked_by_me ? (ar ? "إلغاء الحظر" : "Unblock") : (ar ? "حظر" : "Block")}</button>
         {person.blocked_you && <small>{ar ? "حظرك هذا المستخدم" : "This member blocked you."}</small>}
