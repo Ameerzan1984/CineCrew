@@ -13,20 +13,25 @@ type Credit = { user_id: string; display_name: string; role: string };
 type Comment = { id: string; body: string; created_at: string; parent_comment_id: string | null; author_display_name: string };
 type Review = { id: string; rating: number; body: string; created_at: string; updated_at: string; author_display_name: string; is_own: boolean };
 type ReviewSummary = { average_rating: number; review_count: number };
+type OwnedFilmList = { id: string; name: string; visibility: "public" | "private"; item_count: number };
 
-export default function WatchFilm({ filmId, ar, canReport, onBack, onProfile, onSignIn }: {
+export default function WatchFilm({ filmId, ar, canReport, onBack, onProfile, onSignIn, onOpenLists }: {
   filmId: string;
   ar: boolean;
   canReport: boolean;
   onBack: () => void;
   onProfile: (userId: string) => void;
   onSignIn: () => void;
+  onOpenLists: () => void;
 }) {
   const [film, setFilm] = useState<WatchFilmData | null>(null);
   const [credits, setCredits] = useState<Credit[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [replyTarget, setReplyTarget] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
+  const [ownedLists, setOwnedLists] = useState<OwnedFilmList[]>([]);
+  const [selectedListId, setSelectedListId] = useState("");
+  const [listMessage, setListMessage] = useState("");
   const [reviews, setReviews] = useState<Review[]>([]);
   const [reviewSummary, setReviewSummary] = useState<ReviewSummary>({ average_rating: 0, review_count: 0 });
   const [myReview, setMyReview] = useState<Review | null>(null);
@@ -40,7 +45,12 @@ export default function WatchFilm({ filmId, ar, canReport, onBack, onProfile, on
 
   useEffect(() => {
     let cancelled = false;
-    setFilm(null); setCredits([]); setComments([]); setReplyTarget(null); setReplyDraft(""); setReviews([]); setMyReview(null); setReviewSummary({ average_rating: 0, review_count: 0 });
+    setFilm(null); setCredits([]); setComments([]); setReplyTarget(null); setReplyDraft(""); setOwnedLists([]); setSelectedListId(""); setListMessage(""); setReviews([]); setMyReview(null); setReviewSummary({ average_rating: 0, review_count: 0 });
+    if (canReport) {
+      fetch("/api/lists", { cache: "no-store" }).then(async response => response.ok ? response.json() : null)
+        .then(data => { if (!cancelled && data) { setOwnedLists(data.lists); setSelectedListId(data.lists[0]?.id ?? ""); } })
+        .catch(() => undefined);
+    }
     setDraft(""); setReviewDraft(""); setReviewRating(5); setReviewMessage(""); setError(""); setLoading(true);
     Promise.all([
       fetch(`/api/watch/${filmId}`, { cache: "no-store" }),
@@ -60,7 +70,7 @@ export default function WatchFilm({ filmId, ar, canReport, onBack, onProfile, on
     }).catch(cause => { if (!cancelled) setError((cause as Error).message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [filmId]);
+  }, [canReport, filmId]);
 
   async function toggleLike() {
     if (!film) return;
@@ -129,6 +139,23 @@ export default function WatchFilm({ filmId, ar, canReport, onBack, onProfile, on
     finally { setBusy(false); }
   }
 
+  async function saveToList() {
+    if (!film || !selectedListId) return;
+    setBusy(true); setError(""); setListMessage("");
+    try {
+      const response = await fetch(`/api/lists/${selectedListId}/items`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filmId: film.id }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save this film");
+      if (data.added) {
+        setOwnedLists(current => current.map(list => list.id === selectedListId ? { ...list, item_count: data.item_count } : list));
+        setListMessage(ar ? "\u062d\u064f\u0641\u0638 \u0627\u0644\u0641\u064a\u0644\u0645 \u0641\u064a \u0642\u0627\u0626\u0645\u062a\u0643." : "Film saved to your list.");
+      } else setListMessage(ar ? "\u0627\u0644\u0641\u064a\u0644\u0645 \u0645\u062d\u0641\u0648\u0638 \u0645\u0633\u0628\u0642\u064b\u0627." : "This film is already in that list.");
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+
   return <section className="watch-film-page" aria-label={ar ? "\u0645\u0634\u0627\u0647\u062f\u0629 \u0627\u0644\u0641\u064a\u0644\u0645" : "Watch film"}>
     <button className="back-link" onClick={onBack}>{ar ? "\u0639\u0648\u062f\u0629" : "Back"}</button>
     {loading && <p role="status">{ar ? "\u062c\u0627\u0631\u064d \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0641\u064a\u0644\u0645\u2026" : "Loading film\u2026"}</p>}
@@ -183,6 +210,18 @@ export default function WatchFilm({ filmId, ar, canReport, onBack, onProfile, on
           <button type="button" className="watch-like" aria-pressed={film.liked_by_me} disabled={busy} onClick={() => void toggleLike()}>
             {film.liked_by_me ? "♥" : "♡"} {film.likes_count} {ar ? "\u0625\u0639\u062c\u0627\u0628" : "likes"}
           </button>
+          <section className="watch-save-list" aria-label={ar ? "\u0642\u0648\u0627\u0626\u0645 \u0627\u0644\u0623\u0641\u0644\u0627\u0645" : "Film lists"}>
+            <h3>{ar ? "\u0627\u062d\u0641\u0638 \u0627\u0644\u0641\u064a\u0644\u0645" : "Save this film"}</h3>
+            {canReport ? ownedLists.length ? <div className="watch-list-save-row">
+              <label className="sr-only" htmlFor="watch-film-list">{ar ? "\u0627\u062e\u062a\u0631 \u0642\u0627\u0626\u0645\u0629" : "Choose a list"}</label>
+              <select id="watch-film-list" aria-label={ar ? "\u0627\u062e\u062a\u0631 \u0642\u0627\u0626\u0645\u0629" : "Choose a list"} value={selectedListId} onChange={event => setSelectedListId(event.target.value)}>
+                {ownedLists.map(list => <option key={list.id} value={list.id}>{list.name} ({list.visibility})</option>)}
+              </select>
+              <button className="outline-button" type="button" disabled={busy || !selectedListId} onClick={() => void saveToList()}>{ar ? "\u0625\u0636\u0627\u0641\u0629" : "Add to list"}</button>
+            </div> : <button type="button" className="text-button" onClick={onOpenLists}>{ar ? "\u0623\u0646\u0634\u0626 \u0642\u0627\u0626\u0645\u0629 \u0623\u0648\u0644\u0627\u064b" : "Create a film list"}</button>
+              : <button type="button" className="text-button" onClick={onSignIn}>{ar ? "\u0633\u062c\u0651\u0644 \u0627\u0644\u062f\u062e\u0648\u0644 \u0644\u0644\u062d\u0641\u0638" : "Sign in to save films"}</button>}
+            {listMessage && <p role="status" className="watch-list-message">{listMessage}</p>}
+          </section>
           <div className="watch-comments" aria-label={ar ? "\u0627\u0644\u062a\u0639\u0644\u064a\u0642\u0627\u062a" : "Film comments"}>
             {comments.filter(comment => !comment.parent_comment_id).map(comment => <article key={comment.id} className="watch-comment">
               <strong>{comment.author_display_name}</strong><p>{comment.body}</p>

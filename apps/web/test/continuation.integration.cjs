@@ -179,6 +179,52 @@ async function main() {
       assert.equal((await fetch(`${base}/api/media/${renderId}`)).status, 404, "Draft render files stay private");
       const published = await request(`films/${filmId}/publish`, "POST", { action: "publish" }, owner.cookie);
       assert.equal(published.status, 200); assert.equal(published.body.status, "published");
+      assert.equal((await request("lists")).status, 401, "Private list management requires a CineMesh account");
+      assert.equal((await request("lists/public")).status, 200, "Public list discovery does not require sign-in");
+      assert.equal((await request("lists", "POST", { name: "Guest list" })).status, 401);
+      assert.equal((await request("lists", "POST", { name: "  ", visibility: "public" }, owner.cookie)).status, 400);
+      assert.equal((await request("lists", "POST", { name: "Bad description", description: 12 }, owner.cookie)).status, 400);
+      const publicList = await request("lists", "POST", { name: "Night photography", description: "Films with quiet urban lighting.", visibility: "public" }, owner.cookie);
+      assert.equal(publicList.status, 201); assert.equal(publicList.body.list.visibility, "public");
+      const privateList = await request("lists", "POST", { name: "Reference cuts" }, owner.cookie);
+      assert.equal(privateList.status, 201); assert.equal(privateList.body.list.visibility, "private");
+      assert.equal((await request("lists", "POST", { name: "night photography", visibility: "private" }, owner.cookie)).status, 409,
+        "List names are unique per owner ignoring case");
+      assert.equal((await request(`lists/${privateList.body.list.id}`)).status, 404, "Private lists stay hidden from guests");
+      assert.equal((await request(`lists/${privateList.body.list.id}`, "GET", undefined, member.cookie)).status, 404,
+        "Private lists stay hidden from other accounts");
+      assert.equal((await request(`lists/${privateList.body.list.id}`, "GET", undefined, owner.cookie)).status, 200);
+      const updatedPrivateList = await request(`lists/${privateList.body.list.id}`, "PATCH", { name: "Reference cuts", description: "Private continuity notes.", visibility: "public" }, owner.cookie);
+      assert.equal(updatedPrivateList.status, 200); assert.equal(updatedPrivateList.body.list.visibility, "public");
+      assert.equal((await request("lists/public")).body.lists.some(item => item.id === privateList.body.list.id), true,
+        "Changing a private list to public adds it to list discovery");
+      const sharedListForMember = await request(`lists/${publicList.body.list.id}`, "GET", undefined, member.cookie);
+      assert.equal(sharedListForMember.status, 200, "Published public lists can be read by other accounts");
+      assert.equal((await request(`lists/${publicList.body.list.id}`, "GET")).status, 200, "Published public lists can be read anonymously");
+      assert.equal((await request(`lists/${publicList.body.list.id}`, "PATCH", { visibility: "private" }, member.cookie)).status, 404,
+        "Only the list owner can change its visibility");
+      const savedListFilm = await request(`lists/${publicList.body.list.id}/items`, "POST", { filmId }, owner.cookie);
+      assert.equal(savedListFilm.status, 200); assert.equal(savedListFilm.body.added, true); assert.equal(savedListFilm.body.item_count, 1);
+      const duplicateListFilm = await request(`lists/${publicList.body.list.id}/items`, "POST", { filmId }, owner.cookie);
+      assert.equal(duplicateListFilm.status, 200); assert.equal(duplicateListFilm.body.added, false, "Adding a film twice is idempotent");
+      const draftListFilm = await request("films", "POST", { title: "Unpublished list item", premise: "A draft must never enter a film list.", genre: "Drama", duration_minutes: 1 }, owner.cookie);
+      assert.equal((await request(`lists/${publicList.body.list.id}/items`, "POST", { filmId: draftListFilm.body.id }, owner.cookie)).status, 404,
+        "Only published films with saved renders can enter a list");
+      assert.equal((await request(`lists/${publicList.body.list.id}/items`, "POST", { filmId }, member.cookie)).status, 404,
+        "Only the list owner can modify a public list");
+      assert.equal((await request(`lists/${publicList.body.list.id}/items`, "DELETE", { filmId }, member.cookie)).status, 404);
+      const removedListFilm = await request(`lists/${publicList.body.list.id}/items`, "DELETE", { filmId }, owner.cookie);
+      assert.equal(removedListFilm.status, 200); assert.equal(removedListFilm.body.removed, true); assert.equal(removedListFilm.body.item_count, 0);
+      assert.equal((await request(`lists/${publicList.body.list.id}/items`, "POST", { filmId }, owner.cookie, "http://invalid.example")).status, 403,
+        "List mutations enforce request origin");
+      assert.equal((await request(`lists/${publicList.body.list.id}/items`, "POST", { filmId }, owner.cookie)).body.added, true);
+      assert.equal((await request(`lists/${publicList.body.list.id}`, "DELETE", {}, member.cookie)).status, 404);
+      const sharedList = await request(`lists/${publicList.body.list.id}`);
+      assert.equal(sharedList.body.items.length, 1); assert.equal(sharedList.body.items[0].id, filmId);
+      const ownLists = await request("lists", "GET", undefined, owner.cookie);
+      assert.equal(ownLists.body.lists.length, 2); assert.equal(ownLists.body.lists.find(item => item.id === publicList.body.list.id).item_count, 1);
+      assert.equal((await request("lists", "GET", undefined, member.cookie)).body.lists.length, 0,
+        "Each account sees only its own list-management entries");
       const discovery = await request("discover");
       assert.equal(discovery.status, 200);
       assert.equal(discovery.body.films.find(item => item.id === filmId).media_asset_id, renderId);
@@ -243,6 +289,8 @@ async function main() {
           "Moderated films reject new reviews");
         assert.equal((await request(`films/${filmId}/reviews`, "DELETE", {}, member.cookie)).status, 404,
           "Moderated films reject review deletion while hidden");
+        assert.equal((await request(`lists/${publicList.body.list.id}`)).body.items.length, 0,
+          "Public lists hide moderator-hidden films immediately");
         assert.equal((await fetch(`${base}/api/media/${renderId}`)).status, 404, "A moderated render is no longer public");
         const deniedRepublish = await request(`films/${filmId}/publish`, "POST", { action: "publish" }, owner.cookie);
         assert.equal(deniedRepublish.status, 409);
@@ -250,6 +298,8 @@ async function main() {
         assert.equal((await request("admin/reports", "POST", { reportId: filmReport.id, action: "restore_film", note: "Reviewed and restored." }, moderationAdmin.cookie)).status, 200);
         assert.equal((await request("discover")).body.films.some(item => item.id === filmId), true);
         assert.equal((await request(`films/${filmId}/reviews`)).body.summary.review_count, 2, "Restoring a film makes its saved reviews visible again");
+        assert.equal((await request(`lists/${publicList.body.list.id}`)).body.items.length, 1,
+          "Restoring a film makes its list entry visible again");
         const actions = await pool.query("SELECT action FROM moderation_actions WHERE report_id=$1 ORDER BY created_at,id", [filmReport.id]);
         assert.deepEqual(actions.rows.map(row => row.action), ["hide_film", "restore_film"]);
         assert.equal((await request("admin/reports", "POST", { reportId: filmReport.id, action: "dismiss" }, moderationAdmin.cookie)).status, 200);
@@ -306,6 +356,8 @@ async function main() {
       assert.equal(afterMemberDelete.body.reviews.length, 1);
       assert.equal(afterMemberDelete.body.reviews[0].id, ownerReview.body.review.id, "A contributor can only remove their own review");
       assert.equal((await request(`films/${filmId}/publish`, "POST", { action: "unpublish" }, owner.cookie)).body.status, "draft");
+      assert.equal((await request(`lists/${publicList.body.list.id}`)).body.items.length, 0,
+        "Unpublished film list entries are hidden while the film is private");
       assert.equal((await request("discover")).body.films.some(item => item.id === filmId), false);
       assert.equal((await fetch(`${base}/api/media/${renderId}`)).status, 404, "Unpublishing removes public render access");
       assert.equal((await request(`films/${filmId}/comments`)).body.comments.length, 0, "Unpublished films no longer expose comments");
