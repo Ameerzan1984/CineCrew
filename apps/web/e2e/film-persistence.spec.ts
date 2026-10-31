@@ -32,9 +32,16 @@ test("a member saves a film and scene order that persist after reload", async ({
   await page.getByRole("button", { name: "My profile" }).click();
   await expect(page.getByRole("heading", { name: "CineMesh E2E Member." })).toBeVisible();
   await expect(page.getByText("This filmmaker has not published any films yet.")).toBeVisible();
+  await page.getByRole("button", { name: "Edit profile" }).click();
+  await page.getByLabel("Public bio (up to 500 characters)").fill("Stories about finding a way home.");
+  await page.getByRole("button", { name: "Save profile" }).click();
+  await expect(page.getByText("Stories about finding a way home.")).toBeVisible();
   await page.getByRole("button", { name: "Back" }).click();
   await page.reload();
   await expect(page.getByRole("heading", { name: "Discover." })).toBeVisible();
+  await page.getByRole("button", { name: "My profile" }).click();
+  await expect(page.getByText("Stories about finding a way home.")).toBeVisible();
+  await page.getByRole("button", { name: "Back" }).click();
 
   if (testInfo.project.name.startsWith("mobile")) {
     await page.getByLabel("Navigation").selectOption("projects");
@@ -47,17 +54,24 @@ test("a member saves a film and scene order that persist after reload", async ({
   await expect(page.getByRole("heading", { name: `${title}.` })).toBeVisible();
   await expect(page.getByText(premise)).toBeVisible();
 
-  const createShot = async (shotTitle: string, description: string) => {
+  const timeline = page.getByRole("list", { name: "Scene order" });
+  const timelineItems = timeline.getByRole("listitem");
+  const createShot = async (shotTitle: string, description: string, expectedCount: number) => {
     const form = page.locator(".shot-block form").last();
     await form.getByLabel("Shot title").fill(shotTitle);
     await form.getByLabel("Shot description").fill(description);
+    const createResponse = page.waitForResponse(response => {
+      const request = response.request();
+      if (request.method() !== "POST" || !response.url().endsWith("/production")) return false;
+      try { return request.postDataJSON()?.action === "create_scene"; }
+      catch { return false; }
+    });
     await form.getByRole("button", { name: "Add my shot contribution" }).click();
+    expect((await createResponse).status()).toBe(201);
+    await expect(timelineItems).toHaveCount(expectedCount);
   };
-  await createShot("Harbor opens", "A lighthouse beam crosses the fog.");
-  await createShot("Keeper follows", "The keeper steps into the storm.");
-  const timeline = page.getByRole("list", { name: "Scene order" });
-  const timelineItems = timeline.getByRole("listitem");
-  await expect(timelineItems).toHaveCount(2);
+  await createShot("Harbor opens", "A lighthouse beam crosses the fog.", 1);
+  await createShot("Keeper follows", "The keeper steps into the storm.", 2);
   await expect(timelineItems.nth(0)).toContainText("Harbor opens");
   await expect(timelineItems.nth(1)).toContainText("Keeper follows");
   await timelineItems.nth(1).getByRole("button", { name: "Move Keeper follows up" }).click();

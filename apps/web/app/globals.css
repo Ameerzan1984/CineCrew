@@ -109,6 +109,12 @@
 .film-list-film-title { color: #d4c2fa; background: none; border: 0; padding: 0; font: inherit; font-weight: 600; text-align: start; cursor: pointer; }
 .film-list-public { grid-column: 1 / -1; }
 @media(max-width:760px){.film-lists-layout{grid-template-columns:1fr}.film-list-public{grid-column:auto}.watch-list-save-row{align-items:stretch;flex-direction:column}.watch-list-save-row select,.watch-list-save-row button{width:100%}}
+.profile-edit-action { display: flex; justify-content: flex-end; margin: -14px 0 18px; }
+.profile-bio { margin: -12px 0 20px; max-width: 760px; color: #d0ccd9; font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.profile-bio-form { margin: -12px 0 20px; }
+.profile-bio-form label { display: block; margin-bottom: 8px; font-size: 12px; }
+.profile-bio-form textarea { width: 100%; resize: vertical; border: 1px solid #383744; border-radius: 5px; background: #101015; color: #fff; padding: 10px; font: inherit; font-size: 12px; }
+.profile-bio-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 9px; color: #aaa8b4; }
 .agent-run-library { max-height:680px; overflow:auto; }
 .agent-character-card { margin:10px 0; padding:11px; border:1px solid #302e3a; border-radius:6px; background:#111118; }
 .agent-character-card>div { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }

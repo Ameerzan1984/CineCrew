@@ -246,9 +246,22 @@ async function main() {
       assert.equal(discovery.body.films.find(item => item.id === filmId).owner_id, owner.body.id);
       const publicProfile = await request(`profiles/${owner.body.id}`);
       assert.equal(publicProfile.status, 200); assert.equal(publicProfile.body.profile.display_name, "First contributor");
+      assert.equal(publicProfile.body.profile.bio, "");
       assert.equal("email" in publicProfile.body.profile, false, "Public profiles never expose account email");
       assert.equal(publicProfile.body.films[0].id, filmId, "Profiles list only published saved films");
       assert.equal((await request(`profiles/${randomUUID()}`)).status, 404);
+      assert.equal((await request(`profiles/${owner.body.id}`, "PATCH", { bio: "Unauthorized" })).status, 401,
+        "Editing a profile requires authentication");
+      assert.equal((await request(`profiles/${owner.body.id}`, "PATCH", { bio: "Unauthorized" }, member.cookie)).status, 403,
+        "A member cannot edit another account's profile");
+      assert.equal((await request(`profiles/${owner.body.id}`, "PATCH", { bio: "x".repeat(501) }, owner.cookie)).status, 400,
+        "Profile bio length is validated before writing");
+      assert.equal((await request(`profiles/${owner.body.id}`, "PATCH", { bio: "Blocked origin" }, owner.cookie, "http://invalid.example")).status, 403,
+        "Profile edits enforce request origin");
+      const savedBio = await request(`profiles/${owner.body.id}`, "PATCH", { bio: "  Filmmaker and storyteller.  " }, owner.cookie);
+      assert.equal(savedBio.status, 200); assert.equal(savedBio.body.profile.bio, "Filmmaker and storyteller.");
+      assert.equal((await request(`profiles/${owner.body.id}`)).body.profile.bio, savedBio.body.profile.bio,
+        "The public profile returns its persisted bio");
       assert.equal((await request("community", "POST", { action: "follow", userId: owner.body.id })).status, 401, "Following requires a signed-in user");
       const profileFollow = await request("community", "POST", { action: "follow", userId: owner.body.id }, member.cookie);
       assert.equal(profileFollow.status, 200);

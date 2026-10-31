@@ -67,9 +67,25 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
     }
     const user = await currentUser();
     if (path[0] === "auth" && path[1] === "me" && method === "GET") return json({ user });
+    if (path[0] === "profiles" && path[1] && uuid.test(path[1]) && path.length === 2 && method === "PATCH") {
+      if (!user) return error("Sign in required", 401);
+      if (String(user.id).toLowerCase() !== path[1].toLowerCase()) return error("You can edit only your own profile", 403);
+      const raw = await request.text();
+      if (raw.length > 2048) return error("Request too large", 413);
+      const input = JSON.parse(raw);
+      if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.bio !== "string" || input.bio.length > 500) {
+        return error("Bio must be 500 characters or fewer", 400);
+      }
+      const updated = await db.query(
+        "UPDATE users SET bio=$2 WHERE id=$1 RETURNING id,display_name,bio",
+        [user.id, input.bio.trim()],
+      );
+      if (!updated.rowCount) return error("Profile not found", 404);
+      return json({ profile: updated.rows[0] });
+    }
     if (path[0] === "profiles" && path[1] && uuid.test(path[1]) && path.length === 2 && method === "GET") {
       const profileResult = await db.query(
-        `SELECT u.id,u.display_name,
+        `SELECT u.id,u.display_name,u.bio,
                 (SELECT count(*)::integer FROM follows f WHERE f.followed_id=u.id) AS followers,
                 (SELECT count(*)::integer FROM follows f WHERE f.follower_id=u.id) AS following_count,
                 CASE WHEN $2::uuid IS NULL THEN false ELSE EXISTS (
@@ -315,4 +331,4 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
     return error("The service is unavailable or the request could not be completed",503);
   }
 }
-export { handle as GET, handle as POST, handle as PUT, handle as DELETE };
+export { handle as GET, handle as POST, handle as PUT, handle as PATCH, handle as DELETE };
