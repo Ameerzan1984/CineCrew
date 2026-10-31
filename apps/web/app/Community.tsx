@@ -1,10 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 
-type Person = { id: string; display_name: string; following: boolean; followers: number };
+type Person = { id: string; display_name: string; following: boolean; followers: number; blocked_by_me: boolean; blocked_you: boolean };
 type Invitation = { film_id: string; title: string; genre: string; role: "editor" | "viewer"; invited_by_name: string };
 
-export default function Community({ ar, onFilmListChange, onProfile }: { ar: boolean; onFilmListChange: () => Promise<void>; onProfile: (userId: string) => void }) {
+export default function Community({ ar, onFilmListChange, onProfile, onOpenMessages }: { ar: boolean; onFilmListChange: () => Promise<void>; onProfile: (userId: string) => void; onOpenMessages: (userId: string, displayName: string) => void }) {
   const [users, setUsers] = useState<Person[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [query, setQuery] = useState("");
@@ -30,6 +30,17 @@ export default function Community({ ar, onFilmListChange, onProfile }: { ar: boo
     setBusy(true); setNotice("");
     try {
       const response = await fetch("/api/community", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: person.following ? "unfollow" : "follow", userId: person.id }) });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error || "Request failed");
+      await load(query);
+    } catch (e) { setNotice((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function toggleBlock(person: Person) {
+    setBusy(true); setNotice("");
+    try {
+      const response = await fetch("/api/community", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: person.blocked_by_me ? "unblock" : "block", userId: person.id }) });
       const data = await response.json();
       if (!response.ok) throw Error(data.error || "Request failed");
       await load(query);
@@ -65,7 +76,12 @@ export default function Community({ ar, onFilmListChange, onProfile }: { ar: boo
     {notice && <p role="status">{notice}</p>}
     {users.length ? <div className="community-list">{users.map(person => <div className="settings-card member" key={person.id}>
       <div><strong>{person.display_name}</strong><p>{person.followers} {ar ? "متابعون" : "followers"}</p><button type="button" className="text-button" onClick={() => onProfile(person.id)}>{ar ? "\u0639\u0631\u0636 \u0627\u0644\u0645\u0644\u0641" : "View profile"}</button></div>
-      <button className="outline-button" disabled={busy} onClick={() => toggle(person)}>{person.following ? (ar ? "إلغاء المتابعة" : "Unfollow") : (ar ? "متابعة" : "Follow")}</button>
++      <div className="member-actions">
+        <button type="button" className="outline-button" disabled={busy || person.blocked_by_me || person.blocked_you} onClick={() => onOpenMessages(person.id, person.display_name)}>{ar ? "رسالة" : "Message"}</button>
+        <button type="button" className="text-button" disabled={busy} onClick={() => toggleBlock(person)}>{person.blocked_by_me ? (ar ? "إلغاء الحظر" : "Unblock") : (ar ? "حظر" : "Block")}</button>
+        {person.blocked_you && <small>{ar ? "حظرك هذا المستخدم" : "This member blocked you."}</small>}
+      </div>
+      <button className="outline-button" disabled={busy || person.blocked_by_me || person.blocked_you} onClick={() => toggle(person)}>{person.following ? (ar ? "إلغاء المتابعة" : "Unfollow") : (ar ? "متابعة" : "Follow")}</button>
     </div>)}</div> : <div className="empty"><p>{ar ? "لم يتم العثور على صناع أفلام." : "No members found."}</p></div>}
   </>;
 }
