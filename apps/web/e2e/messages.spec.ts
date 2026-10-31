@@ -25,12 +25,15 @@ test("filmmakers can exchange a private message from Community and see unread st
     await page.getByLabel("Password (at least 12 characters)").fill(password);
     await page.getByRole("button", { name: "Create account" }).click();
 
-    await page.getByRole("button", { name: "Community" }).click();
+    const communityButton = page.getByRole("button", { name: "Community", exact: true });
+    if (await communityButton.isVisible()) await communityButton.click();
+    else await page.locator(".mobile-nav").selectOption("community");
     await page.getByLabel("Search members").fill(recipientName);
     await page.getByRole("button", { name: "Search", exact: true }).click();
-    await expect(page.getByText(recipientName, { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Message", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Messages" })).toBeVisible();
+    const recipientCard = page.locator(".community-list .member").filter({ hasText: recipientName });
+    await expect(recipientCard).toHaveCount(1);
+    await recipientCard.getByRole("button", { name: "Message", exact: true }).click();
+    await expect(page.getByRole("heading", { name: /Messages/ })).toBeVisible();
     await page.getByLabel("Your message").fill(message);
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByText(message, { exact: true })).toBeVisible();
