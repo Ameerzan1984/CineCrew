@@ -32,9 +32,15 @@ test("users can report a member and configured moderators can dismiss it", async
   await page.getByLabel("Password (at least 12 characters)").fill("CineMesh-CI-Admin-Test-Only-2026!");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
 
-  const adminButton = page.getByRole("button", { name: "Admin", exact: true });
-  if (await adminButton.isVisible()) await adminButton.click();
-  else await page.locator(".mobile-nav").selectOption("admin");
+  if (testInfo.project.name === "mobile-chromium") {
+    const mobileNav = page.locator(".mobile-nav");
+    await expect(mobileNav.locator('option[value="admin"]')).toHaveCount(1);
+    await mobileNav.selectOption("admin");
+  } else {
+    const adminButton = page.getByRole("button", { name: "Admin", exact: true });
+    await expect(adminButton).toBeVisible();
+    await adminButton.click();
+  }
   await expect(page.getByRole("heading", { name: "Admin moderation" })).toBeVisible();
   await expect(page.getByText(`Please review this account ${nonce}.`)).toBeVisible();
   await page.getByRole("button", { name: "Dismiss report" }).click();

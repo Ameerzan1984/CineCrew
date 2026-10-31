@@ -16,6 +16,8 @@ test("filmmakers can exchange a private message from Community and see unread st
       data: { name: recipientName, email: `recipient-${suffix}@example.test`, password },
     });
     expect(recipient.status()).toBe(201);
+    const recipientCookie = recipient.headers()["set-cookie"]?.split(";")[0];
+    expect(recipientCookie).toMatch(/^cinemesh_session=/);
 
     await page.goto("/");
     await page.getByRole("button", { name: "Sign in to create" }).click();
@@ -38,7 +40,7 @@ test("filmmakers can exchange a private message from Community and see unread st
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page.getByText(message, { exact: true })).toBeVisible();
 
-    const inbox = await recipientApi.get("/api/messages");
+    const inbox = await recipientApi.get("/api/messages", { headers: { Cookie: recipientCookie } });
     expect(inbox.status()).toBe(200);
     const data = await inbox.json();
     expect(data.conversations).toHaveLength(1);
