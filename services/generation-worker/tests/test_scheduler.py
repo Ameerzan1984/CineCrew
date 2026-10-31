@@ -149,12 +149,13 @@ def test_lease_renewal_requires_current_unexpired_token(pg_scheduler):
 
 def test_lease_operations_recheck_expiry_after_row_lock_wait(pg_scheduler):
     s, actor, project = pg_scheduler
-    resource = s.register_resource(actor, 'test-provider', ['video'], 'USD')
+    resource = s.register_resource(actor, 'test-provider', ['video'], 'USD', max_concurrency=3)
     s.grant(actor, project, resource, 300)
-    claims = []
-    for index in range(3):
-        job = s.enqueue(actor, project, f'shot-{index}', f'request-{index}', 'video', 'USD', 20)
-        claims.append({'job': job, 'claim': s.claim(project, lease_seconds=3)})
+    jobs = [
+        s.enqueue(actor, project, f'shot-{index}', f'request-{index}', 'video', 'USD', 20)
+        for index in range(3)
+    ]
+    claims = [{'job': job, 'claim': s.claim(project, lease_seconds=3)} for job in jobs]
     assert all(item['claim'] and item['claim']['job_id'] == item['job'] for item in claims)
 
     outcome = []
