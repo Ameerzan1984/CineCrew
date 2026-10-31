@@ -108,3 +108,9 @@
 .film-list-film-title { color: #d4c2fa; background: none; border: 0; padding: 0; font: inherit; font-weight: 600; text-align: start; cursor: pointer; }
 .film-list-public { grid-column: 1 / -1; }
 @media(max-width:760px){.film-lists-layout{grid-template-columns:1fr}.film-list-public{grid-column:auto}.watch-list-save-row{align-items:stretch;flex-direction:column}.watch-list-save-row select,.watch-list-save-row button{width:100%}}
+.agent-run-library { max-height:680px; overflow:auto; }
+.agent-character-card { margin:10px 0; padding:11px; border:1px solid #302e3a; border-radius:6px; background:#111118; }
+.agent-character-card>div { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.agent-character-card p,.agent-run-library section p { margin:7px 0; color:#c4c1ce; font-size:11px; line-height:1.6; }
+.agent-run-library code { color:#b9a0ff; font-size:10px; overflow-wrap:anywhere; }
+.agent-run-library h4 { margin:16px 0 6px; }

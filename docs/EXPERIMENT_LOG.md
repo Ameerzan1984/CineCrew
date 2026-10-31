@@ -199,3 +199,9 @@ From branch `cinemesh` at base `39bfd5138f62cf3b3970cfd3f7df3b08276eb3f4`, added
 **Local results:** 30/30 web unit tests passed; `npm run lint`, `npm run build`, `node --check test/continuation.integration.cjs`, `npx playwright test --list` (12 tests), and `git diff --check` passed. There is no Docker executable, `psql`/`pg_isready`, or configured local disposable PostgreSQL service in this Windows environment.
 
 **Hosted results:** Push run [41208378509](https://github.com/Ameerzan1984/CineCrew/actions/runs/41208378509) and PR run [41208384064](https://github.com/Ameerzan1984/CineCrew/actions/runs/41208384064) succeeded. CI applied Migration 017, passed PostgreSQL continuation and the desktop/mobile Playwright suite, and used an ephemeral PostgreSQL service. No ChatGPT, LLM, MCP, Higgsfield, or paid generation calls were made.
+
+## 2026-10-31 — Review saved CineCrew Film Bible and FilmDSL (local verification)
+
+Completed agent runs now display their persisted character/personality/relationship data, locations, props, and FilmDSL in the Film Studio result. The UI renders a selected set of library fields and does not display reference image/audio local paths. At the Next.js boundary, both GET and POST agent-run responses recursively remove filesystem path fields and reference variation paths; one new unit test verifies redaction and preserved display data.
+
+**Local results:** 31/31 web unit tests passed; `npm run lint`, `npm run build`, Playwright discovery (12 desktop/mobile cases), `git diff --check`, and continuation-script syntax check passed. Hosted CI and a browser review of a real saved run are pending. No real LLM or paid provider request was submitted.

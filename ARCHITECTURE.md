@@ -28,3 +28,7 @@ This remains an experimental platform, not a production-ready social network. Se
 ## Persistent film lists (implementation, CI verified)
 
 Migration 017 stores user-owned public/private collections and ordered film membership in PostgreSQL. The Next.js `/api/lists` routes enforce owner-only changes; public endpoints only return films that are published, not hidden by moderation, and have a persisted `film_render`. The `FilmLists` view exposes create/edit/delete, public discovery, and list details, while Watch adds published films to the signed-in user's lists. Local unit/type/build checks passed. CI runs [41208378509](https://github.com/Ameerzan1984/CineCrew/actions/runs/41208378509) and [41208384064](https://github.com/Ameerzan1984/CineCrew/actions/runs/41208384064) applied the migration and passed PostgreSQL continuation and desktop/mobile E2E. This checkout still has no local PostgreSQL service or Docker.
+
+## Saved agent output review (implementation; live model run not re-tested)
+
+The private Film Engine already persists the completed CineCrew `asset_library` and `blueprint` in the run output. Film Studio now displays selected character, location, prop and FilmDSL data from that saved result. The Next.js story-editor GET and POST handlers redact local path fields before returning a run to the browser. This is a read-only snapshot: manual character CRUD is still a separate PostgreSQL representation, and a canonical editable Film Bible endpoint/synchronization remains open. Do not claim real model generation from unit/build coverage.

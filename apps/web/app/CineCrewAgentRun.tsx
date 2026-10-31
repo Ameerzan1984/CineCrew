@@ -4,6 +4,13 @@ import { useEffect, useState } from "react";
 
 type Stage = { stage: string; agent: string; status: string; error_code: string | null };
 type SavedRun = { id: string; model: string; status: string; stage: string; error_code: string | null; created_at: string; updated_at: string; created_by_name: string; can_resume: boolean };
+type CharacterAsset = {
+  id: string; name: string; description: string; clothing_style?: string; voice_description?: string;
+  personality?: string; backstory?: string; current_motivation?: string; scene_count?: number;
+  dialogue_lines?: number; key_relationships?: string[];
+};
+type LibraryLocation = { id: string; name: string; type?: string; visual_style?: string; narrative_function?: string };
+type LibraryProp = { id: string; name: string; visual_description?: string; importance?: string; related_character_id?: string | null };
 type Run = {
   id: string;
   status: string;
@@ -18,6 +25,10 @@ type Run = {
     video_job_count: number;
     model: string;
     screenplay: { title: string; logline: string; screenplay: string };
+    asset_library?: {
+      project_title?: string; global_style?: string; characters?: CharacterAsset[];
+      locations?: LibraryLocation[]; props?: LibraryProp[];
+    };
     blueprint: unknown;
     video_jobs: null | { jobs: Array<{ job_id: string | null; shot_id: string; prompt: string; duration: number; width: number; height: number; model: string | null }>; estimated_duration: number };
     provider_submission: { submitted: boolean; reason: string };
@@ -258,6 +269,27 @@ export default function CineCrewAgentRun({
             <p>{run.output.screenplay.logline}</p>
             <pre>{run.output.screenplay.screenplay}</pre>
           </details>
+          {run.output.asset_library && <details className="agent-run-library">
+            <summary>{ar ? "فيلم بايبل ومكتبة الأصول المولدة" : "Generated Film Bible and Asset Library"}</summary>
+            <p>{run.output.asset_library.project_title} {run.output.asset_library.global_style && `· ${run.output.asset_library.global_style}`}</p>
+            {run.output.asset_library.characters?.map(character => <article className="agent-character-card" key={character.id}>
+              <div><strong>{character.name}</strong><code>{character.id}</code></div>
+              <p>{character.description}</p>
+              {character.clothing_style && <p><b>{ar ? "الملابس" : "Clothing"}:</b> {character.clothing_style}</p>}
+              {character.personality && <p><b>{ar ? "الشخصية" : "Personality"}:</b> {character.personality}</p>}
+              {character.backstory && <p><b>{ar ? "الخلفية" : "Backstory"}:</b> {character.backstory}</p>}
+              {character.current_motivation && <p><b>{ar ? "الدافع" : "Motivation"}:</b> {character.current_motivation}</p>}
+              {character.voice_description && <p><b>{ar ? "الصوت" : "Voice"}:</b> {character.voice_description}</p>}
+              {character.key_relationships?.length ? <small>{ar ? "العلاقات" : "Relationships"}: {character.key_relationships.join(", ")}</small> : null}
+              <small>{character.scene_count ?? 0} {ar ? "مشاهد" : "scenes"} · {character.dialogue_lines ?? 0} {ar ? "حوارات" : "dialogue lines"}</small>
+            </article>)}
+            {run.output.asset_library.locations?.length ? <section><h4>{ar ? "المواقع" : "Locations"}</h4>{run.output.asset_library.locations.map(location => <p key={location.id}><strong>{location.name}</strong> <code>{location.id}</code> — {location.visual_style}</p>)}</section> : null}
+            {run.output.asset_library.props?.length ? <section><h4>{ar ? "الأدوات" : "Props"}</h4>{run.output.asset_library.props.map(prop => <p key={prop.id}><strong>{prop.name}</strong> <code>{prop.id}</code> — {prop.visual_description}</p>)}</section> : null}
+          </details>}
+          {run.output.blueprint !== null && run.output.blueprint !== undefined && <details>
+            <summary>{ar ? "معاينة FilmDSL" : "View generated FilmDSL"}</summary>
+            <pre>{JSON.stringify(run.output.blueprint, null, 2)}</pre>
+          </details>}
           {run.output.video_jobs && <details>
             <summary>{ar ? `خطة مهام الفيديو (${run.output.video_jobs.jobs.length}) · ${run.output.video_jobs.estimated_duration} ثانية` : `Video job plan (${run.output.video_jobs.jobs.length}) · ${run.output.video_jobs.estimated_duration}s`}</summary>
             {run.output.video_jobs.jobs.map((job) => <article className="production-form" key={job.job_id || job.shot_id}>

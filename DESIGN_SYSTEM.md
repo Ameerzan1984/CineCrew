@@ -5,3 +5,5 @@ CineMesh uses a cinema-inspired dark palette: background `#08080C`, surface `#13
 Film review controls use five keyboard-operable star buttons with explicit rating labels and pressed state, a constrained review form, and inline average/review-count summary. Keep these controls readable and usable in RTL on narrow screens.
 
 Film lists use the same dark settings-card surfaces and purple focus/accent treatment. Public/private state and item counts must be visible in the list card; create/edit controls remain labeled, and film titles stay actionable without turning owner-only delete/remove controls into public actions. Keep the two-column layout stacked on narrow screens and preserve logical reading order in RTL.
+
+The generated Film Bible review uses compact character cards with stable asset IDs, readable metadata labels and collapsible long-form details. Avoid rendering machine-local image/audio paths; future visual references should be served through authorized media URLs or asset IDs.

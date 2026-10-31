@@ -72,3 +72,9 @@ Run IDs and ownership are persisted in PostgreSQL, and the studio can discover r
 - Implemented Migration 017 and PostgreSQL-backed owner-only list management, public/private visibility, public discovery, rendered-film membership, and save-from-Watch UI.
 - Local evidence: 30 unit tests, TypeScript, production build, integration-script syntax, Playwright discovery (12 desktop/mobile tests), and `git diff --check` pass.
 - Hosted evidence: push run [41208378509](https://github.com/Ameerzan1984/CineCrew/actions/runs/41208378509) and PR run [41208384064](https://github.com/Ameerzan1984/CineCrew/actions/runs/41208384064) passed migration, PostgreSQL-backed continuation tests, and desktop/mobile Playwright. The workflow used ephemeral CI PostgreSQL; this Windows checkout has no local database or Docker.
+
+## Saved CineCrew Film Bible review (2026-10-31; hosted CI pending)
+
+- Completed saved runs now present generated characters, locations, props and FilmDSL in the Film Studio for review.
+- New response redaction removes local paths from agent-run GET/POST responses; its unit test and the complete 31-test web unit suite pass locally. TypeScript, build, Playwright discovery and diff checks also pass.
+- Still pending: hosted CI for this change and a browser check against a real saved ChatGPT/CineCrew run. The view does not implement editing or canonical Film Bible synchronization.

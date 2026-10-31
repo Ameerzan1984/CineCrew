@@ -5,6 +5,7 @@ import { allowedOrigin } from "../../../../../../lib/origin";
 import { chatGPTAccessToken } from "../../../../../../lib/chatgpt-plan-credentials";
 import { listChatGPTModels } from "../../../../../../lib/chatgpt-plan-oauth";
 import { buildCollaborativeScript } from "../../../../../../lib/collaborative-script";
+import { sanitizeAgentRunResponse } from "../../../../../../lib/agent-run-response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,7 +81,7 @@ export async function GET(request: NextRequest, context: Context) {
     if (!response.ok) return json({ error: "Agent run status is unavailable" }, response.status);
     const run = await response.json();
     await syncRun(id, run);
-    return json(run);
+    return json(sanitizeAgentRunResponse(run));
   } catch { return json({ error: "Agent service is unavailable" }, 503); }
 }
 
@@ -138,7 +139,7 @@ export async function POST(request: NextRequest, context: Context) {
     }
     const run = await result.json();
     await syncRun(id, run);
-    return json(run);
+    return json(sanitizeAgentRunResponse(run));
   } catch (error) {
     if (error instanceof SyntaxError) return json({ error: "Invalid JSON" }, 400);
     const message = error instanceof Error ? error.message : "Agent request failed";
