@@ -76,3 +76,8 @@ Discover publishing and a GitHub Actions PostgreSQL/Playwright workflow were add
 5. Verify that the jobs use the resolved CineCrew prompts, then save resulting media durably and assemble it with FFmpeg in the CineMesh UI. Record provider IDs, duration, resolution, media sizes, and errors without credentials.
 6. Run the two-user PostgreSQL scenario: separate CineMesh accounts, film collaboration, different shot ownership, each user's private provider credential, and per-shot approval. Only then claim cross-user generation works.
 7. Before pushing, inspect Git status and staged diff for `.env`, credential material, generated media, `.venv`, or run output. Push `cinemesh` and update PR #1 without merging once the review is clean.
+
+
+## Latest checkpoint — 2026-10-31
+
+The hosted PostgreSQL CI verified migrations and the auth/collaboration integration after correcting test-only assumptions. Published Discover now has like/unlike and comments backed by PostgreSQL with publication-aware read/write access. The web unit tests, TypeScript check and production build pass locally. Push the pending social-action change, wait for its PostgreSQL + Playwright run, and fix any failures. Then continue with user profiles/Watch details and reliable background generation; live OAuth/model and Higgsfield account checks still need the user's official browser authorization and approved credentials, and paid generation still requires per-request consent.

@@ -55,9 +55,9 @@ async function main() {
       VALUES($1,$2,$3,$4,$5,'/bytedance/seedance-2.5/text-to-video','A traveler opens the door.',4,'completed',$6,now()-interval '1 hour')`,
       [firstJobId,filmId,firstSceneId,owner.body.id,randomUUID(),"https://example.cloudfront.net/expired.mp4"]);
 
-    const denied = await request(`films/${filmId}/generations`, "POST", { sceneId: secondSceneId, requestKey: randomUUID() }, owner.cookie);
+    const denied = await request(`films/${filmId}/generations`, "POST", { sceneId: secondSceneId, requestKey: randomUUID(), quoteToken: "unverified-test-quote", maxCostUsd: 1 }, owner.cookie);
     assert.equal(denied.status, 403, "The owner cannot use their account to generate another contributor's shot");
-    const continuation = await request(`films/${filmId}/generations`, "POST", { sceneId: secondSceneId, requestKey: randomUUID(), referenceGenerationId: firstJobId }, member.cookie);
+    const continuation = await request(`films/${filmId}/generations`, "POST", { sceneId: secondSceneId, requestKey: randomUUID(), referenceGenerationId: firstJobId, quoteToken: "unverified-test-quote", maxCostUsd: 1 }, member.cookie);
     assert.equal(continuation.status, 409);
     assert.match(continuation.body.error, /expired/i, "The first shot must be recognized as earlier before its expired URL is rejected");
 
@@ -82,6 +82,8 @@ async function main() {
     fs.mkdirSync(path.dirname(mediaPath), { recursive: true });
     fs.writeFileSync(mediaPath, fixture, { flag: "wx" });
     try {
+      assert.equal((await request(`films/${filmId}/comments`)).body.comments.length, 0, "Draft comments stay private");
+      assert.equal((await request(`films/${filmId}/comments`, "POST", { body: "Private draft comment" }, owner.cookie)).status, 404);
       await pool.query(`INSERT INTO media_assets(id,film_id,kind,storage_key,mime_type,size_bytes,sha256,created_by)
         VALUES($1,$2,'film_render',$3,'video/mp4',$4,$5,$6)`,
         [renderId,filmId,storageKey,fixture.length,createHash("sha256").update(fixture).digest("hex"),owner.body.id]);
@@ -94,9 +96,27 @@ async function main() {
       const publicMedia = await fetch(`${base}/api/media/${renderId}`);
       assert.equal(publicMedia.status, 200, "Published film renders may be streamed without a CineMesh account");
       assert.equal(Buffer.from(await publicMedia.arrayBuffer()).toString(), fixture.toString());
+      const initialComments = await request(`films/${filmId}/comments`);
+      assert.equal(initialComments.status, 200); assert.deepEqual(initialComments.body.comments, []);
+      assert.equal((await request(`films/${filmId}/comments`, "POST", { body: "Anonymous comment" })).status, 401);
+      const ownerLike = await request(`films/${filmId}/likes`, "POST", {}, owner.cookie);
+      assert.equal(ownerLike.status, 200); assert.equal(ownerLike.body.likes_count, 1); assert.equal(ownerLike.body.liked_by_me, true);
+      const duplicateLike = await request(`films/${filmId}/likes`, "POST", {}, owner.cookie);
+      assert.equal(duplicateLike.body.likes_count, 1, "Likes are idempotent per user and film");
+      const memberLike = await request(`films/${filmId}/likes`, "POST", {}, member.cookie);
+      assert.equal(memberLike.body.likes_count, 2);
+      const memberUnlike = await request(`films/${filmId}/likes`, "DELETE", {}, member.cookie);
+      assert.equal(memberUnlike.body.likes_count, 1); assert.equal(memberUnlike.body.liked_by_me, false);
+      assert.equal((await request(`films/${filmId}/likes`, "POST", {}, member.cookie)).body.likes_count, 2);
+      const comment = await request(`films/${filmId}/comments`, "POST", { body: "The second shot continues the first." }, member.cookie);
+      assert.equal(comment.status, 201); assert.equal(comment.body.comment.author_display_name, "Second contributor");
+      const publicComments = await request(`films/${filmId}/comments`);
+      assert.equal(publicComments.body.comments.length, 1); assert.equal(publicComments.body.comments[0].id, comment.body.comment.id);
       assert.equal((await request(`films/${filmId}/publish`, "POST", { action: "unpublish" }, owner.cookie)).body.status, "draft");
       assert.equal((await request("discover")).body.films.some(item => item.id === filmId), false);
       assert.equal((await fetch(`${base}/api/media/${renderId}`)).status, 404, "Unpublishing removes public render access");
+      assert.equal((await request(`films/${filmId}/comments`)).body.comments.length, 0, "Unpublished films no longer expose comments");
+      assert.equal((await request(`films/${filmId}/likes`, "POST", {}, owner.cookie)).status, 404, "Unpublished films no longer accept likes");
     } finally {
       fs.rmSync(mediaPath, { force: true });
     }

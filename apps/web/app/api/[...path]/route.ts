@@ -67,7 +67,46 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
     }
     const user = await currentUser();
     if (path[0] === "auth" && path[1] === "me" && method === "GET") return json({ user });
+    if (path[0] === "films" && path[1] && uuid.test(path[1]) && path[2] === "comments" && path.length === 3 && method === "GET") {
+      const result = await db.query(
+        `SELECT c.id,c.body,c.created_at,u.display_name AS author_display_name
+         FROM comments c
+         JOIN films f ON f.id=c.film_id
+         JOIN users u ON u.id=c.author_id
+         WHERE c.film_id=$1 AND f.status='published'
+         ORDER BY c.created_at ASC,c.id ASC
+         LIMIT 100`, [path[1]]);
+      return json({ comments: result.rows });
+    }
     if (!user) return error("Sign in required", 401);
+    if (path[0] === "films" && path[1] && uuid.test(path[1]) && path[2] === "likes" && path.length === 3 && ["POST", "DELETE"].includes(method)) {
+      const client = await db.connect();
+      try {
+        await client.query("BEGIN");
+        const film = await client.query("SELECT id FROM films WHERE id=$1 AND status='published' FOR UPDATE", [path[1]]);
+        if (!film.rows[0]) { await client.query("ROLLBACK"); return error("Film not found", 404); }
+        if (method === "POST") await client.query("INSERT INTO film_likes(film_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING", [path[1], user.id]);
+        else await client.query("DELETE FROM film_likes WHERE film_id=$1 AND user_id=$2", [path[1], user.id]);
+        const result = await client.query(
+          `SELECT count(*)::integer AS likes_count,
+                  EXISTS(SELECT 1 FROM film_likes WHERE film_id=$1 AND user_id=$2) AS liked_by_me
+           FROM film_likes WHERE film_id=$1`, [path[1], user.id]);
+        await client.query("COMMIT");
+        return json(result.rows[0]);
+      } catch (e) { await client.query("ROLLBACK"); throw e; }
+      finally { client.release(); }
+    }
+    if (path[0] === "films" && path[1] && uuid.test(path[1]) && path[2] === "comments" && path.length === 3 && method === "POST") {
+      const input = await body(request);
+      const comment = text(input.body, 2000);
+      if (!comment) return error("Comment text is required (up to 2,000 characters)", 400);
+      const result = await db.query(
+        `INSERT INTO comments(id,film_id,author_id,body)
+         SELECT $1,f.id,$3,$4 FROM films f WHERE f.id=$2 AND f.status='published'
+         RETURNING id,body,created_at`, [randomUUID(), path[1], user.id, comment]);
+      if (!result.rows[0]) return error("Film not found", 404);
+      return json({ comment: { ...result.rows[0], author_display_name: user.display_name } }, 201);
+    }
     if (path[0] === "films" && path.length === 1) {
       if (method === "GET") {
         const result = await db.query(
