@@ -147,3 +147,7 @@ The changed provider unit test, PostgreSQL continuation assertions (per-contribu
 ## Collaboration inbox browser coverage (2026-10-31)
 
 A new Playwright test covers a real PostgreSQL-backed invite notification in the desktop/mobile browser projects: one account is registered through the UI, another account creates a collaborative film and invites it, the recipient reads the notification and accepts, then the owner inbox is checked for the response. All four desktop/mobile browser cases passed with both PostgreSQL integrations on commit `c3a567240d0892b359734fd83fe526778f600485` in PR run [41198676452](https://github.com/Ameerzan1984/CineCrew/actions/runs/41198676452) and push run [41198673016](https://github.com/Ameerzan1984/CineCrew/actions/runs/41198673016). No external provider is called.
+
+## Film Engine PostgreSQL persistence (2026-10-31)
+
+The engine now supports SQLite locally and PostgreSQL in a dedicated `cinemesh_engine` schema. Compose passes the app's PostgreSQL URL to the private engine. A one-time transactional SQLite importer refuses a non-empty target schema. A new CI integration test covers importing a legacy film/run/checkpoint, checkpoint persistence across two FastAPI lifespans, and concurrent idempotent film advances; its hosted run is pending. Local SQLite tests remain 14 passed, 1 skipped (the PostgreSQL test, because there is no local database). Existing Compose SQLite volume is retained. Real OS process kill, database backup/restore, lease fencing and multi-replica operations remain open.

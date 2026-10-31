@@ -19,8 +19,13 @@ services:
       dockerfile: services/film-engine/Dockerfile
     environment:
       FILM_ENGINE_SERVICE_TOKEN: ${FILM_ENGINE_SERVICE_TOKEN:?Set FILM_ENGINE_SERVICE_TOKEN}
+      CINEMESH_ENGINE_DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL with host postgres}
+      CINEMESH_ENGINE_PG_SCHEMA: cinemesh_engine
     volumes:
       - film_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
   migrate:
     build:
       context: .

@@ -6,6 +6,7 @@
 import json
 import hashlib
 import os
+import re
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -23,8 +24,61 @@ def db_path():
     return os.environ.get("CINEMESH_ENGINE_DB", "./data/film-engine.db")
 
 
+def postgres_schema():
+    schema = os.environ.get("CINEMESH_ENGINE_PG_SCHEMA", "cinemesh_engine")
+    if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", schema):
+        raise ValueError("CINEMESH_ENGINE_PG_SCHEMA must be a lowercase PostgreSQL identifier")
+    return schema
+
+
+class PostgresConnection:
+    """Small adapter retaining the storage module's SQLite-style query API."""
+
+    is_postgres = True
+
+    def __init__(self, raw):
+        self.raw = raw
+
+    def execute(self, sql, parameters=None):
+        sql = sql.replace("BEGIN IMMEDIATE", "BEGIN")
+        sql = sql.replace("?", "%s")
+        if parameters is None:
+            return self.raw.execute(sql)
+        return self.raw.execute(sql, parameters)
+
+    def executescript(self, sql):
+        for statement in sql.split(";"):
+            if statement.strip():
+                self.execute(statement)
+
+    def executemany(self, sql, parameters):
+        with self.raw.cursor() as cursor:
+            cursor.executemany(sql.replace("?", "%s"), parameters)
+            return cursor.rowcount
+
+    def commit(self):
+        self.raw.commit()
+
+
 @contextmanager
-def connection():
+def connection(create_schema=False):
+    database_url = os.environ.get("CINEMESH_ENGINE_DATABASE_URL")
+    if database_url:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        schema = postgres_schema()
+        raw = psycopg.connect(database_url, connect_timeout=10, row_factory=dict_row)
+        try:
+            if create_schema:
+                raw.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+            raw.execute(f'SET search_path TO "{schema}"')
+            raw.commit()
+            yield PostgresConnection(raw)
+        finally:
+            raw.close()
+        return
+
     path = db_path()
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, timeout=30)
@@ -37,7 +91,7 @@ def connection():
 
 
 def init_db():
-    with connection() as db:
+    with connection(create_schema=bool(os.environ.get("CINEMESH_ENGINE_DATABASE_URL"))) as db:
         db.executescript("""
         CREATE TABLE IF NOT EXISTS films (
           id TEXT PRIMARY KEY, data TEXT NOT NULL, current_stage INTEGER NOT NULL DEFAULT 0,
@@ -76,9 +130,78 @@ def init_db():
           PRIMARY KEY(run_id, stage)
         );
         """)
-        columns = {row["name"] for row in db.execute("PRAGMA table_info(agent_runs)")}
+        if isinstance(db, PostgresConnection):
+            columns = {row["column_name"] for row in db.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = current_schema() AND table_name = 'agent_runs'")}
+        else:
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(agent_runs)")}
         if "script_segment" not in columns:
             db.execute("ALTER TABLE agent_runs ADD COLUMN script_segment TEXT NOT NULL DEFAULT ''")
+        db.commit()
+
+
+def migrate_sqlite_to_postgres(source_path):
+    """Copy legacy engine tables once into an empty PostgreSQL schema."""
+    if not os.environ.get("CINEMESH_ENGINE_DATABASE_URL"):
+        raise RuntimeError("CINEMESH_ENGINE_DATABASE_URL must select the PostgreSQL target")
+    source_path = Path(source_path)
+    if not source_path.is_file():
+        raise FileNotFoundError("SQLite source database does not exist")
+
+    table_order = (
+        "films", "checkpoints", "blueprints", "production_plans", "agent_runs",
+        "agent_run_checkpoints", "agent_stage_runs",
+    )
+    source = sqlite3.connect(source_path)
+    source.row_factory = sqlite3.Row
+    try:
+        source_tables = {row["name"] for row in source.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        if "films" not in source_tables:
+            raise ValueError("SQLite source has no CineMesh films table")
+
+        with connection() as target:
+            target.execute("BEGIN")
+            target_counts = {
+                table: target.execute(f'SELECT COUNT(*) AS count FROM "{table}"').fetchone()["count"]
+                for table in table_order
+            }
+            if any(target_counts.values()):
+                raise ValueError("PostgreSQL engine schema is not empty; import requires a blank target")
+
+            imported = {}
+            for table in table_order:
+                if table not in source_tables:
+                    imported[table] = 0
+                    continue
+                source_columns = [row["name"] for row in source.execute(f'PRAGMA table_info("{table}")')]
+                if any(not re.fullmatch(r"[a-z_][a-z0-9_]*", column) for column in source_columns):
+                    raise ValueError(f"SQLite table {table} has an unsupported column identifier")
+                target_columns = [row["column_name"] for row in target.execute(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema=current_schema() AND table_name=? ORDER BY ordinal_position",
+                    (table,),
+                )]
+                columns = [column for column in source_columns if column in target_columns]
+                if not columns:
+                    imported[table] = 0
+                    continue
+                quoted_columns = ",".join(f'"{column}"' for column in columns)
+                placeholders = ",".join("?" for _ in columns)
+                insert = f'INSERT INTO "{table}" ({quoted_columns}) VALUES ({placeholders})'
+                rows = source.execute(f'SELECT {quoted_columns} FROM "{table}"').fetchall()
+                target.executemany(insert, [tuple(row[column] for column in columns) for row in rows])
+                imported[table] = len(rows)
+            target.commit()
+    finally:
+        source.close()
+    return imported
+
+
+def _lock_postgres_record(db, key):
+    if isinstance(db, PostgresConnection):
+        db.execute("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", (key,))
 
 
 def decode_film(row):
@@ -118,6 +241,7 @@ def get_film(film_id):
 def update_film(film_id, changes):
     with connection() as db:
         db.execute("BEGIN IMMEDIATE")
+        _lock_postgres_record(db, f"film:{film_id}")
         row = db.execute("SELECT * FROM films WHERE id = ?", (film_id,)).fetchone()
         if row is None:
             return None
@@ -140,6 +264,7 @@ def checkpoints(film_id):
 def save_blueprint(film_id, data):
     with connection() as db:
         db.execute("BEGIN IMMEDIATE")
+        _lock_postgres_record(db, f"film:{film_id}")
         db.execute("INSERT INTO blueprints VALUES (?, ?, ?) ON CONFLICT(film_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
                    (film_id, json.dumps(data, ensure_ascii=False), now()))
         db.execute("DELETE FROM production_plans WHERE film_id = ?", (film_id,))
@@ -159,6 +284,7 @@ def build_production_plan(film_id, asset_library):
 
     with connection() as db:
         db.execute("BEGIN IMMEDIATE")
+        _lock_postgres_record(db, f"film:{film_id}")
         row = db.execute("SELECT data FROM blueprints WHERE film_id = ?", (film_id,)).fetchone()
         if not row:
             raise LookupError("Import a FilmDSL blueprint first")
@@ -183,6 +309,7 @@ def advance(film_id, idempotency_key=None):
     with connection() as db:
         # Serialize concurrent advances so retries cannot create duplicate stages.
         db.execute("BEGIN IMMEDIATE")
+        _lock_postgres_record(db, f"film:{film_id}")
         film_row = db.execute("SELECT * FROM films WHERE id = ?", (film_id,)).fetchone()
         if film_row is None:
             raise LookupError("Film not found")
@@ -247,6 +374,7 @@ def claim_story_editor_run(film_id, run_id, script_segment, binding=None):
     digest, timestamp = hashlib.sha256((binding or script_segment).encode("utf-8")).hexdigest(), now()
     with connection() as db:
         db.execute("BEGIN IMMEDIATE")
+        _lock_postgres_record(db, f"run:{run_id}")
         if not db.execute("SELECT 1 FROM films WHERE id=?", (film_id,)).fetchone():
             raise LookupError("Film not found")
         row = db.execute("SELECT * FROM agent_runs WHERE id=?", (run_id,)).fetchone()
@@ -457,7 +585,7 @@ def run_cinecrew_agents(film_id, run_id, film_idea, film_settings, access_token,
                     with connection() as db:
                         db.execute("UPDATE agent_runs SET updated_at=? WHERE id=? AND status='running'", (now(), run_id))
                         db.commit()
-                except sqlite3.Error:
+                except Exception:
                     pass
         heartbeat_thread = threading.Thread(target=heartbeat, name=f"cinecrew-heartbeat-{run_id[:8]}", daemon=True)
         heartbeat_thread.start()

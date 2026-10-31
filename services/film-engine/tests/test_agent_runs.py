@@ -1,9 +1,14 @@
 import json
+import os
 import sqlite3
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 
+from fastapi.testclient import TestClient
+import pytest
 from app import storage
+from app.main import app
 from src.schemas.assets import AssetLibrary
 from src.schemas.blueprint import SceneBlueprint
 from src.schemas.screenplay import ScreenplayDraft
@@ -139,3 +144,63 @@ def test_restart_recovers_checkpointed_stage_without_running_it_again(tmp_path, 
     stages = {item["stage"]: item for item in storage.get_agent_stage_runs(run_id)}
     assert stages["art_department"]["status"] == "completed"
     assert stages["story_editor"]["status"] == "completed"
+
+
+def test_postgres_checkpoint_survives_service_restart_and_serializes_advances(monkeypatch, tmp_path):
+    database_url = os.environ.get("CINEMESH_TEST_ENGINE_DATABASE_URL")
+    if not database_url:
+        pytest.skip("CINEMESH_TEST_ENGINE_DATABASE_URL is not configured")
+
+    import psycopg
+
+    schema = f"engine_test_{uuid.uuid4().hex}"
+    monkeypatch.setenv("CINEMESH_ENGINE_DATABASE_URL", database_url)
+    monkeypatch.setenv("CINEMESH_ENGINE_PG_SCHEMA", schema)
+    monkeypatch.setenv("FILM_ENGINE_SERVICE_TOKEN", "postgres-restart-test-token")
+    try:
+        sqlite_path = tmp_path / "legacy-film-engine.db"
+        monkeypatch.delenv("CINEMESH_ENGINE_DATABASE_URL", raising=False)
+        monkeypatch.setenv("CINEMESH_ENGINE_DB", str(sqlite_path))
+        storage.init_db()
+        film = storage.create_film({"title": "PostgreSQL recovery", "premise": "A projectionist finds a lost reel."})
+        run_id = str(uuid.uuid4())
+        film_idea = "A projectionist finds a lost reel that predicts tomorrow."
+        assert storage.claim_story_editor_run(film["id"], run_id, film_idea)["state"] == "started"
+        checkpoint = {
+            "screenplay": {"title": film["title"], "screenplay": "The projectionist studies the final frame."},
+            "asset_library": {"characters": [{"id": "char_keeper", "name": "Projectionist"}]},
+            "scene_blueprint": {"blueprint_id": "projectionist-recovery", "shots": [{"shot_id": "shot_001"}]},
+        }
+        storage.set_agent_stage_run(run_id, "story_editor", "running")
+        storage.complete_agent_stage_with_checkpoint(run_id, "story_editor", checkpoint, {"shots": 1})
+
+        monkeypatch.setenv("CINEMESH_ENGINE_DATABASE_URL", database_url)
+        storage.init_db()
+        imported = storage.migrate_sqlite_to_postgres(sqlite_path)
+        assert imported["films"] == 1
+        assert imported["agent_run_checkpoints"] == 1
+        with pytest.raises(ValueError, match="not empty"):
+            storage.migrate_sqlite_to_postgres(sqlite_path)
+
+        # A second FastAPI lifespan recreates the storage connection and schema
+        # initialization, matching an engine service restart against PostgreSQL.
+        with TestClient(app) as first_process:
+            first_process.headers["X-Cinemesh-Service-Token"] = "postgres-restart-test-token"
+            assert first_process.get(f"/films/{film['id']}/cinecrew/runs/{run_id}").status_code == 200
+        storage.init_db()
+        with TestClient(app) as restarted_process:
+            restarted_process.headers["X-Cinemesh-Service-Token"] = "postgres-restart-test-token"
+            restored = restarted_process.get(f"/films/{film['id']}/cinecrew/runs/{run_id}")
+            assert restored.status_code == 200
+            assert restored.json()["stages"][0]["status"] == "completed"
+            assert storage.get_agent_checkpoint(run_id, "story_editor") == checkpoint
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            advances = list(executor.map(
+                lambda _: storage.advance(film["id"], "same-request"), range(4)
+            ))
+        assert len({item["id"] for item in advances}) == 1
+        assert len(storage.checkpoints(film["id"])) == 1
+    finally:
+        with psycopg.connect(database_url) as db:
+            db.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')

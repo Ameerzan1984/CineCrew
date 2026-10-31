@@ -113,7 +113,7 @@ jobs:
 
       - name: Test CineCrew engine, generation scheduling, and rendering
         run: |
-          (cd services/film-engine && python -m pytest -q)
+          (cd services/film-engine && CINEMESH_TEST_ENGINE_DATABASE_URL="$DATABASE_URL" python -m pytest -q)
           (cd services/generation-worker && python -m pytest -q tests)
           (cd services/render-worker && python -m pytest -q test_render.py)
 
