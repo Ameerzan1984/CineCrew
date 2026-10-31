@@ -71,10 +71,16 @@ jobs:
       - name: Create ephemeral test-only credentials
         shell: bash
         run: |
+          engine_token="$(openssl rand -hex 32)"
+          chatgpt_vault_key="$(openssl rand -base64 32 | tr -d '\n')"
+          higgsfield_vault_key="$(openssl rand -base64 32 | tr -d '\n')"
+          echo "::add-mask::$engine_token"
+          echo "::add-mask::$chatgpt_vault_key"
+          echo "::add-mask::$higgsfield_vault_key"
           {
-            echo "FILM_ENGINE_SERVICE_TOKEN=$(openssl rand -hex 32)"
-            echo "CHATGPT_VAULT_KEY=$(openssl rand -base64 32 | tr -d '\n')"
-            echo "HIGGSFIELD_VAULT_KEY=$(openssl rand -base64 32 | tr -d '\n')"
+            echo "FILM_ENGINE_SERVICE_TOKEN=$engine_token"
+            echo "CHATGPT_VAULT_KEY=$chatgpt_vault_key"
+            echo "HIGGSFIELD_VAULT_KEY=$higgsfield_vault_key"
             echo "CINEMESH_ENGINE_DB=$RUNNER_TEMP/cinemesh-film-engine.sqlite3"
             echo "CINEMESH_MEDIA_DIR=$RUNNER_TEMP/cinemesh-media"
           } >> "$GITHUB_ENV"

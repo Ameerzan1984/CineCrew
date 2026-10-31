@@ -57,7 +57,7 @@ async function main() {
   assert.equal(character.status, 201); const characterId = character.body.characters[0].id;
   assert.equal((await request(endpoint, "POST", { action: "create_character", name: "B", description: "", asset_id: null }, b.cookie)).status, 403);
   const edited = await request(endpoint, "POST", { action: "update_scene", id: sceneId, position: 3, title: "Edited", description: "" }, a.cookie);
-  assert.equal(edited.body.scenes[0].title, "Edited");
+  assert.equal(edited.body.scenes.find(item => item.id === sceneId)?.title, "Edited");
   const editedContribution = await request(endpoint, "POST", { action: "update_scene", id: bobScene.id, position: 4, title: "Second shot edited", description: "Connected to the opening." }, b.cookie);
   assert.equal(editedContribution.status, 200);
   const deleted = await request(endpoint, "POST", { action: "delete_character", id: characterId }, a.cookie);
