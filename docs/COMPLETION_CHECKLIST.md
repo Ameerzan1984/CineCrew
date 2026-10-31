@@ -62,4 +62,4 @@ This checklist tracks user-visible acceptance, not whether a route or mock exist
 
 ## ChatGPT OAuth consent handling update (2026-10-31)
 
-OAuth unit coverage and production build pass for identity-only consent, plan-use scope gating, renewable refresh requirements, and a dedicated ChatGPT vault key. This is implementation and mocked-test evidence only. Real browser consent, model catalog access, a Responses API call, and a CineCrew run are still unverified. The release acceptance row for live ChatGPT remains open.
+OAuth unit coverage and production build pass for identity-only consent, plan-use scope gating, renewable refresh requirements, and a dedicated ChatGPT vault key. Hosted GitHub Actions run 41195739882 passed the complete PostgreSQL-backed workflow plus desktop/mobile browser checks. These are implementation and mocked OAuth-test results only. Real browser consent, model catalog access, a Responses API call, and a CineCrew run are still unverified. The release acceptance row for live ChatGPT remains open.
