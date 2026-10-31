@@ -103,3 +103,10 @@ CineMesh شبكة اجتماعية واستوديو لإنتاج الأفلام 
 - Public profiles expose only a user's display name and follower/following counts plus the current viewer's follow state; they never expose email. Their portfolio queries published films only when a saved `film_render` exists, and plays via the public media route. A draft/unpublished film is not listed.
 - Discover and Community now link to profiles. Signed-in viewers can follow/unfollow; guests are prompted to sign in. Profile writes use the existing origin-checked Community follow endpoint.
 - The integration test now covers profile payload privacy, unknown UUID, published-only portfolio, follows, and unpublishing. Local build checks passed; this current profile change still needs its hosted PostgreSQL/Playwright run. Do not claim profile acceptance is complete until CI passes.
+
+
+## Watch film details — 2026-10-31
+
+- The public Watch API returns only published film rows with a saved `film_render`, exposing safe film metadata, asset ID, and filmmaker/editor/viewer credits. It reuses existing protected public media and comment/like routes. Draft/unpublished films return 404.
+- Discover and profile cards open the Watch surface. It renders the actual stored MP4, synopsis, runtime, language, team credits, likes and comments. Guests may watch/read and are prompted to authenticate before posting. A signed-in member can open their own profile from the top bar; Playwright asserts that a private draft does not enter their public portfolio.
+- Profile-only integration assertions passed in CI run 41193243766. This Watch update and its new DB/browser assertions were added after that run and require the next hosted CI result. Local web unit/type/build checks passed.

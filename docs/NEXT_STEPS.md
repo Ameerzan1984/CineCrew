@@ -80,9 +80,9 @@ Discover publishing and a GitHub Actions PostgreSQL/Playwright workflow were add
 
 ## Latest checkpoint — 2026-10-31
 
-The hosted PostgreSQL CI now passes migrations, auth/collaboration/publication/social integration, and desktop/mobile Playwright persistence + RTL checks (run 41192626181). Published Discover supports saved-render playback, search, likes and comments. Public filmmaker profile code and profile-specific PostgreSQL assertions have been added locally; verify the current change in hosted CI, then continue with Watch-film details and durable background generation; live OAuth/model and Higgsfield account checks still need official browser authorization and approved credentials, and paid generation still requires per-request consent.
+The hosted PostgreSQL CI now passes migrations, auth/collaboration/publication/social integration, and desktop/mobile Playwright persistence + RTL checks (run 41192626181). Published Discover supports saved-render playback, search, likes and comments. Public filmmaker profiles and their PostgreSQL privacy/follow assertions passed in CI run 41193243766. A standalone Watch-film page and additional DB/browser assertions have since been implemented; verify that update in hosted CI, then continue with durable background generation; live OAuth/model and Higgsfield account checks still need official browser authorization and approved credentials, and paid generation still requires per-request consent.
 
 
 ### CI follow-up
 
-Run `2673511` passed database migrations, web unit/type/build, provider, CineCrew engine, scheduling/render checks, both PostgreSQL integration scripts, and Playwright persistence/RTL tests on desktop and mobile. The next profile slice is implemented locally and is awaiting its CI run; after that continue with Watch-film details. Live OAuth and paid provider generation remain unverified.
+Run `2673511` passed database migrations, web unit/type/build, provider, CineCrew engine, scheduling/render checks, both PostgreSQL integration scripts, and Playwright persistence/RTL tests on desktop and mobile. Public profile integration passed in CI run 41193243766. The Watch-film details slice now passes local unit/type/build checks and is awaiting its hosted PostgreSQL/Playwright run. Live OAuth and paid provider generation remain unverified.

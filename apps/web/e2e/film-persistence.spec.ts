@@ -29,6 +29,10 @@ test("a member registers, saves a film, and reopens it after a browser restart",
 
   await expect(page.getByRole("heading", { name: `${title}.` })).toBeVisible();
   await expect(page.getByText(premise)).toBeVisible();
+  await page.getByRole("button", { name: "My profile" }).click();
+  await expect(page.getByRole("heading", { name: "CineMesh E2E Member." })).toBeVisible();
+  await expect(page.getByText("This filmmaker has not published any films yet.")).toBeVisible();
+  await page.getByRole("button", { name: "Back" }).click();
   await page.reload();
   await expect(page.getByRole("heading", { name: "Discover." })).toBeVisible();
 

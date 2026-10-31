@@ -38,6 +38,7 @@ async function main() {
     assert.equal(film.status, 201);
     const filmId = film.body.id;
     assert.equal((await request("discover")).body.films.some(item => item.id === filmId), false);
+    assert.equal((await request(`watch/${filmId}`)).status, 404, "Draft films are not publicly watchable");
     assert.equal((await request(`films/${filmId}/publish`, "POST", { action: "publish" }, owner.cookie)).status, 409);
     assert.equal((await request(`films/${filmId}/publish`, "POST", { action: "publish" }, member.cookie)).status, 404);
     const matchingDatabase = await pool.query("SELECT owner_id FROM films WHERE id=$1", [filmId]);
@@ -108,6 +109,10 @@ async function main() {
       assert.equal(profileFollow.status, 200);
       const followedProfile = await request(`profiles/${owner.body.id}`, "GET", undefined, member.cookie);
       assert.equal(followedProfile.body.profile.following, true); assert.equal(followedProfile.body.profile.followers, 1);
+      const watchPage = await request(`watch/${filmId}`);
+      assert.equal(watchPage.status, 200); assert.equal(watchPage.body.film.media_asset_id, renderId);
+      assert.equal(watchPage.body.contributors.length, 2, "Watch details list the filmmaker and film contributors");
+      assert.equal(watchPage.body.contributors.find(credit => credit.role === "editor").user_id, member.body.id);
       const publicMedia = await fetch(`${base}/api/media/${renderId}`);
       assert.equal(publicMedia.status, 200, "Published film renders may be streamed without a CineMesh account");
       assert.equal(Buffer.from(await publicMedia.arrayBuffer()).toString(), fixture.toString());
@@ -133,6 +138,7 @@ async function main() {
       assert.equal((await request(`films/${filmId}/comments`)).body.comments.length, 0, "Unpublished films no longer expose comments");
       assert.equal((await request(`films/${filmId}/likes`, "POST", {}, owner.cookie)).status, 404, "Unpublished films no longer accept likes");
       assert.equal((await request(`profiles/${owner.body.id}`)).body.films.length, 0, "Unpublished films leave the public portfolio");
+      assert.equal((await request(`watch/${filmId}`)).status, 404, "Unpublished films are not publicly watchable");
       assert.equal((await request("community", "POST", { action: "unfollow", userId: owner.body.id }, member.cookie)).status, 200);
     } finally {
       fs.rmSync(mediaPath, { force: true });

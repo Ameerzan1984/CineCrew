@@ -5,12 +5,13 @@ import { useEffect, useState } from "react";
 type ProfileData = { id: string; display_name: string; followers: number; following_count: number; following: boolean };
 type Film = { id: string; title: string; premise: string; genre: string; duration_minutes: number; media_asset_id: string; likes_count: number; comments_count: number };
 
-export default function Profile({ userId, viewerId, ar, onBack, onSignIn }: {
+export default function Profile({ userId, viewerId, ar, onBack, onSignIn, onOpenFilm }: {
   userId: string;
   viewerId?: string;
   ar: boolean;
   onBack: () => void;
   onSignIn: () => void;
+  onOpenFilm: (filmId: string) => void;
 }) {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [films, setFilms] = useState<Film[]>([]);
@@ -72,6 +73,7 @@ export default function Profile({ userId, viewerId, ar, onBack, onSignIn }: {
         <div className="discover-film-copy"><h3>{film.title}</h3><p>{film.premise}</p>
           <div className="discover-film-meta"><span>{film.genre}</span><span>{film.duration_minutes} {ar ? "\u062f\u0642\u064a\u0642\u0629" : "min"}</span></div>
           <small>{film.likes_count} {ar ? "\u0625\u0639\u062c\u0627\u0628" : "likes"} · {film.comments_count} {ar ? "\u062a\u0639\u0644\u064a\u0642" : "comments"}</small>
+          <button type="button" className="discover-watch-button" onClick={() => onOpenFilm(film.id)}>{ar ? "\u0645\u0634\u0627\u0647\u062f\u0629 \u0627\u0644\u0641\u064a\u0644\u0645" : "Watch film"}</button>
         </div>
       </article>)}</div> : <div className="empty"><p>{ar ? "\u0644\u0645 \u064a\u0646\u0634\u0631 \u0647\u0630\u0627 \u0627\u0644\u0645\u062e\u0631\u062c \u0623\u0641\u0644\u0627\u0645\u0627\u064b \u0628\u0639\u062f." : "This filmmaker has not published any films yet."}</p></div>}
     </>}

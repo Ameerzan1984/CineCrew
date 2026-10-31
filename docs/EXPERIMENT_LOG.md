@@ -85,3 +85,10 @@ Higgsfield's official API help confirms a pre-request estimate capability and se
 **Implemented:** Added public `GET /api/profiles/:id` with only display name, follower/following counts, viewer follow state, and films that are both published and backed by a saved render. Added profile pages with video portfolio and follow/unfollow UI; Discover filmmaker links and Community directory links open profiles. Public profile responses do not include email. Unpublishing removes a film from the profile portfolio.
 
 **Coverage added:** The disposable PostgreSQL continuation scenario checks public profile shape, email exclusion, published portfolio membership, unknown profiles, sign-in required for following, follow counts/state, and portfolio removal after unpublish. Local 27-test web unit suite, TypeScript check, Next.js production build, Node syntax checks, and `git diff --check` passed with this slice. The hosted profile-specific PostgreSQL assertions have not run yet.
+
+
+## 2026-10-31 - Watch film details
+
+**Implemented:** Added public `GET /api/watch/:id`, available only while a film is published with a saved render. It returns film metadata, current like state/count, filmmaker, contributor credits and media reference without exposing account email. Discover and profile portfolios now open an independent Watch page with player, premise, runtime, credits, likes and comments. Guests can play and read; like/comment mutations prompt sign-in. Publishing status remains enforced by the existing media and social routes.
+
+**Coverage added:** The disposable PostgreSQL integration scenario now checks draft/unpublished Watch 404s, saved render metadata, and owner/editor credits. Playwright now opens a member's own public profile and confirms their unpublished draft does not appear. Local unit tests passed 27/27, TypeScript check passed, production build compiled, and integration/E2E scripts parse; hosted Watch/profile-browser execution is pending. No paid provider request was made.

@@ -95,6 +95,34 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
          ORDER BY f.updated_at DESC,f.id DESC LIMIT 60`, [path[1], user?.id ?? null]);
       return json({ profile: profileResult.rows[0], films: filmsResult.rows });
     }
+    if (path[0] === "watch" && path[1] && uuid.test(path[1]) && path.length === 2 && method === "GET") {
+      const filmResult = await db.query(
+        `SELECT f.id,f.owner_id,f.title,f.premise,f.genre,f.duration_minutes,f.language,
+                owner.display_name AS owner_display_name,
+                render.id AS media_asset_id,render.size_bytes AS media_size_bytes,
+                (SELECT count(*)::integer FROM film_likes l WHERE l.film_id=f.id) AS likes_count,
+                (SELECT count(*)::integer FROM comments c WHERE c.film_id=f.id) AS comments_count,
+                CASE WHEN $2::uuid IS NULL THEN false ELSE EXISTS (
+                  SELECT 1 FROM film_likes own_like WHERE own_like.film_id=f.id AND own_like.user_id=$2
+                ) END AS liked_by_me
+         FROM films f JOIN users owner ON owner.id=f.owner_id
+         JOIN LATERAL (
+           SELECT a.id,a.size_bytes FROM media_assets a
+           WHERE a.film_id=f.id AND a.kind='film_render'
+           ORDER BY a.created_at DESC,a.id DESC LIMIT 1
+         ) render ON true
+         WHERE f.id=$1 AND f.status='published'`, [path[1], user?.id ?? null]);
+      if (!filmResult.rows[0]) return error("Film not found", 404);
+      const credits = await db.query(
+        `SELECT owner.id AS user_id,owner.display_name,'director'::text AS role
+         FROM films f JOIN users owner ON owner.id=f.owner_id WHERE f.id=$1
+         UNION ALL
+         SELECT u.id AS user_id,u.display_name,c.role::text AS role
+         FROM film_contributors c JOIN users u ON u.id=c.user_id JOIN films f ON f.id=c.film_id
+         WHERE f.id=$1 AND c.user_id<>f.owner_id
+         ORDER BY role,user_id`, [path[1]]);
+      return json({ film: filmResult.rows[0], contributors: credits.rows });
+    }
     if (path[0] === "films" && path[1] && uuid.test(path[1]) && path[2] === "comments" && path.length === 3 && method === "GET") {
       const result = await db.query(
         `SELECT c.id,c.body,c.created_at,u.display_name AS author_display_name
