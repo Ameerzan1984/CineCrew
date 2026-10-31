@@ -296,6 +296,7 @@ async function main() {
       const missingRenderSearch = await request(`discover?q=${encodeURIComponent("Unrendered search sentinel")}`);
       assert.equal(missingRenderSearch.body.films.some(item => item.id === missingRenderId), false,
         "A published database row without a saved render is excluded from search");
+      await pool.query('DELETE FROM films WHERE id = ANY($1::uuid[]) OR id=$2', [catalogIds, missingRenderId]);
       const watchPage = await request(`watch/${filmId}`);
       assert.equal(watchPage.status, 200); assert.equal(watchPage.body.film.media_asset_id, renderId);
       assert.equal(watchPage.body.contributors.length, 2, "Watch details list the filmmaker and film contributors");
