@@ -39,13 +39,13 @@ export async function GET(request: NextRequest) {
     const code = request.nextUrl.searchParams.get("code") ?? "";
     if (!code || code.length > 4096) return returnToApp("failed", returnOrigin);
     const clientId = callbackClientId(request.nextUrl.searchParams.get("client_id"), transaction.clientId);
-    const { tokens, identity } = await exchangeAuthorizationCode(code, transaction, clientId);
+    const { tokens, identity, planUsageEnabled } = await exchangeAuthorizationCode(code, transaction, clientId);
     if (transaction.expectedSubject && transaction.expectedSubject !== identity.subject) return returnToApp("failed", returnOrigin);
     await db.query(`INSERT INTO chatgpt_plan_connections(user_id,client_id,subject,email,display_name,encrypted_credentials,scopes)
       VALUES($1,$2,$3,$4,$5,$6,$7)
       ON CONFLICT(user_id) DO UPDATE SET client_id=EXCLUDED.client_id,subject=EXCLUDED.subject,email=EXCLUDED.email,display_name=EXCLUDED.display_name,encrypted_credentials=EXCLUDED.encrypted_credentials,scopes=EXCLUDED.scopes,updated_at=now()`,
     [userId, clientId, identity.subject, identity.email, identity.name, encryptChatGPTSecret(userId, tokens satisfies ChatGPTTokens), tokens.scopes]);
-    return returnToApp("connected", returnOrigin);
+    return returnToApp(planUsageEnabled ? "connected" : "permission", returnOrigin);
   } catch (error) {
     if (error instanceof Error && /plan usage|offline access/i.test(error.message)) return returnToApp("permission", returnOrigin);
     return returnToApp("failed", returnOrigin);

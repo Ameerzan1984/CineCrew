@@ -15,6 +15,7 @@ export async function chatGPTAccessToken(userId: string): Promise<string> {
       await client.query("COMMIT");
       return saved.access_token;
     }
+    if (!saved.refresh_token) throw new Error("Reconnect ChatGPT to enable renewable plan usage");
     const refreshed = await refreshChatGPTTokens(row.client_id, saved.refresh_token);
     const next: ChatGPTTokens = {
       ...saved,

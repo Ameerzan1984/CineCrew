@@ -32,10 +32,14 @@ test("authorization-code exchange repeats the exact callback URI and resource", 
   let captured: { url: string; options: RequestInit } | undefined;
   globalThis.fetch = (async (url: string | URL | Request, options: RequestInit = {}) => {
     captured = { url: String(url), options };
-    return Response.json({ access_token: "access", refresh_token: "refresh", id_token: "id-token", expires_in: 3600, scope: "openid offline_access" });
+    return Response.json({ access_token: "access", id_token: "id-token", expires_in: 3600, scope: "openid email profile" });
   }) as typeof fetch;
   try {
-    await assert.rejects(exchangeAuthorizationCode("one-time-code", transaction, "oaiapp-issued-client"), /required ChatGPT plan usage scopes/i);
+    const result = await exchangeAuthorizationCode("one-time-code", transaction, "oaiapp-issued-client", async () => ({ subject: "subject-1", email: "user@example.test", name: "CineMesh User" }));
+    assert.equal(result.planUsageEnabled, false);
+    assert.equal(result.tokens.refresh_token, undefined);
+    assert.deepEqual(result.tokens.scopes, ["openid", "email", "profile"]);
+    assert.equal(result.identity.subject, "subject-1");
     assert.equal(captured?.url, "https://auth.openai.com/api/accounts/oauth/token");
     const body = new URLSearchParams(String(captured?.options.body));
     assert.equal(body.get("grant_type"), "authorization_code");
@@ -43,6 +47,15 @@ test("authorization-code exchange repeats the exact callback URI and resource", 
     assert.equal(body.get("redirect_uri"), redirectUri);
     assert.equal(body.get("code_verifier"), "pkce-verifier");
     assert.equal(body.get("resource"), "https://api.openai.com/v1");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("plan-use scopes without a renewable refresh token cannot authorize inference", async () => {
+  const originalFetch = globalThis.fetch;
+  const transaction: OAuthTransaction = { nonce: "nonce-value", verifier: "pkce-verifier", clientId: "oaiapp-issued-client", redirectUri, createdAt: Date.now() };
+  globalThis.fetch = (async () => Response.json({ access_token: "access", id_token: "id-token", expires_in: 3600, scope: planScopes.join(" ") })) as typeof fetch;
+  try {
+    await assert.rejects(exchangeAuthorizationCode("one-time-code", transaction, "oaiapp-issued-client", async () => ({ subject: "subject-1", email: null, name: null })), /renewable refresh token/i);
   } finally { globalThis.fetch = originalFetch; }
 });
 

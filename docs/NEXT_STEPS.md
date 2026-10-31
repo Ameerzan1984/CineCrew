@@ -94,3 +94,7 @@ Run `2673511` passed the earlier database, unit/type/build, provider, engine, sc
 3. Add a contract test based only on the verified schema. Keep the existing test asserting zero network calls until that evidence exists.
 4. Only after exact cost details are shown in the UI may the contributor explicitly approve the one request. Do not claim a provider-enforced spend cap unless documented.
 5. After this gate, continue with real ChatGPT OAuth/inference, CineCrew FilmDSL run, disposable PostgreSQL restore/permissions, durable workers/storage, and two-account credential-isolation acceptance.
+
+## Immediate follow-up after the OAuth handling update (2026-10-31)
+
+The previous live-test steps remain open. Run CineMesh and its isolated PostgreSQL service in a permitted local/CI environment, set a dedicated CHATGPT_VAULT_KEY outside Git, and complete Sign in with ChatGPT in the user's browser. Verify the resulting grant, discover models, make one authorized Responses request, and run the idea-to-FilmDSL path. Record actual errors and resumability. Do not submit any Higgsfield generation until the provider's exact USD estimate contract is confirmed and the user approves the displayed job and cost.

@@ -33,7 +33,7 @@ export type OAuthTransaction = {
 
 export type ChatGPTTokens = {
   access_token: string;
-  refresh_token: string;
+  refresh_token?: string;
   id_token: string;
   expires_at: number;
   scopes: string[];
@@ -81,7 +81,12 @@ export function callbackClientId(returned: string | null, expected: string) {
   return expected;
 }
 
-export async function exchangeAuthorizationCode(code: string, transaction: OAuthTransaction, clientId: string) {
+export async function exchangeAuthorizationCode(
+  code: string,
+  transaction: OAuthTransaction,
+  clientId: string,
+  identityVerifier: typeof verifyIdentity = verifyIdentity,
+) {
   const response = await fetch(tokenEndpoint, {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
@@ -99,20 +104,26 @@ export async function exchangeAuthorizationCode(code: string, transaction: OAuth
   if (!response.ok) throw new Error(`ChatGPT token exchange failed (HTTP ${response.status})`);
   const result = await response.json() as Record<string, unknown>;
   const granted = typeof result.scope === "string" ? result.scope.split(/\s+/).filter(Boolean) : [];
-  if (typeof result.access_token !== "string" || !result.access_token || typeof result.refresh_token !== "string" || !result.refresh_token ||
+  if (typeof result.access_token !== "string" || !result.access_token ||
       typeof result.id_token !== "string" || !result.id_token || typeof result.expires_in !== "number" || !Number.isFinite(result.expires_in) || result.expires_in <= 0) {
-    throw new Error("ChatGPT did not return the required plan-usage credentials");
+    throw new Error("ChatGPT did not return a valid identity token set");
   }
-  if (!hasChatGPTPlanScopes(granted)) throw new Error("Required ChatGPT plan usage scopes were not granted (offline access, response invocation, and plan usage are required)");
+  // A valid OIDC login can be retained when the user declines plan-use scopes.
+  // It must not be used for model discovery or inference without the full grant.
+  if (hasChatGPTPlanScopes(granted) && (typeof result.refresh_token !== "string" || !result.refresh_token)) {
+    throw new Error("ChatGPT plan usage was granted without a renewable refresh token");
+  }
+  if (!granted.includes("openid")) throw new Error("ChatGPT did not grant the required OpenID identity scope");
   return {
     tokens: {
       access_token: result.access_token,
-      refresh_token: result.refresh_token,
+      refresh_token: typeof result.refresh_token === "string" && result.refresh_token ? result.refresh_token : undefined,
       id_token: result.id_token,
       expires_at: Date.now() + result.expires_in * 1000,
       scopes: granted,
     } satisfies ChatGPTTokens,
-    identity: await verifyIdentity(result.id_token, transaction.nonce, clientId),
+    identity: await identityVerifier(result.id_token, transaction.nonce, clientId),
+    planUsageEnabled: hasChatGPTPlanScopes(granted),
   };
 }
 

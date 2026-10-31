@@ -59,3 +59,7 @@ This checklist tracks user-visible acceptance, not whether a route or mock exist
 - Keep mocks, offline CineCrew outputs, real language-model output, and provider-generated media clearly distinct.
 - Before every paid provider request, show the verified price and settings and obtain that contributor's explicit consent. Never imply a provider-side spending cap unless the provider enforces one.
 - Continue with the next open vertical slice after each successful CI run. Keep the project on `cinemesh`, update PR #1 without merging, and preserve CineCrew's Apache-2.0 source and attribution.
+
+## ChatGPT OAuth consent handling update (2026-10-31)
+
+OAuth unit coverage and production build pass for identity-only consent, plan-use scope gating, renewable refresh requirements, and a dedicated ChatGPT vault key. This is implementation and mocked-test evidence only. Real browser consent, model catalog access, a Responses API call, and a CineCrew run are still unverified. The release acceptance row for live ChatGPT remains open.

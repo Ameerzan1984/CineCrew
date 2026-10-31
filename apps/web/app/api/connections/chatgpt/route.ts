@@ -27,7 +27,7 @@ export async function GET() {
     const result = await database().query("SELECT email,display_name,scopes,last_inference_at,updated_at FROM chatgpt_plan_connections WHERE user_id=$1", [user.id]);
     const row = result.rows[0];
     return json({
-      vaultReady: !!(process.env.CHATGPT_VAULT_KEY || process.env.HIGGSFIELD_VAULT_KEY),
+      vaultReady: !!process.env.CHATGPT_VAULT_KEY,
       connected: !!row,
       account: row ? { email: row.email, name: row.display_name, planUsageEnabled: hasChatGPTPlanScopes(row.scopes), lastInferenceAt: row.last_inference_at, connectedAt: row.updated_at } : null,
       usageUrl: "https://chatgpt.com/settings/usage",
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     const db = database();
 
     if (input.action === "connect") {
-      if (!(process.env.CHATGPT_VAULT_KEY || process.env.HIGGSFIELD_VAULT_KEY)) return json({ error: "Configure CHATGPT_VAULT_KEY before connecting a ChatGPT account" }, 503);
+      if (!process.env.CHATGPT_VAULT_KEY) return json({ error: "Configure CHATGPT_VAULT_KEY before connecting a ChatGPT account" }, 503);
       const returnOrigin = request.nextUrl.origin;
       const parsedOrigin = new URL(returnOrigin);
       if (parsedOrigin.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(parsedOrigin.hostname) || parsedOrigin.port !== "3000") return json({ error: "Sign in to the local CineMesh app on port 3000 to connect ChatGPT" }, 400);
@@ -76,7 +76,9 @@ export async function POST(request: NextRequest) {
         const found = await client.query("SELECT client_id,encrypted_credentials FROM chatgpt_plan_connections WHERE user_id=$1 FOR UPDATE", [user.id]);
         if (found.rows[0]) {
           const tokens = decryptChatGPTSecret<ChatGPTTokens>(user.id, found.rows[0].encrypted_credentials);
-          try { await revokeChatGPTRefreshToken(found.rows[0].client_id, tokens.refresh_token); revoked = true; } catch { /* clear locally even if remote revocation is unavailable */ }
+          if (tokens.refresh_token) {
+            try { await revokeChatGPTRefreshToken(found.rows[0].client_id, tokens.refresh_token); revoked = true; } catch { /* clear locally even if remote revocation is unavailable */ }
+          }
           await client.query("DELETE FROM chatgpt_plan_connections WHERE user_id=$1", [user.id]);
         }
         await client.query("COMMIT");

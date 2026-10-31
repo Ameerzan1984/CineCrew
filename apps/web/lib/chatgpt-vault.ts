@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 function vaultKey(): Buffer {
-  const raw = process.env.CHATGPT_VAULT_KEY || process.env.HIGGSFIELD_VAULT_KEY || "";
+  const raw = process.env.CHATGPT_VAULT_KEY || "";
   if (!/^[A-Za-z0-9+/]{43}=$/.test(raw)) throw new Error("Set CHATGPT_VAULT_KEY to a base64-encoded 32-byte secret");
   const key = Buffer.from(raw, "base64");
   if (key.length !== 32 || key.toString("base64") !== raw) throw new Error("Invalid ChatGPT vault key");
