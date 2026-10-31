@@ -65,6 +65,9 @@ async function main() {
     const filmId = film.body.id;
     assert.equal((await request("discover")).body.films.some(item => item.id === filmId), false);
     assert.equal((await request(`watch/${filmId}`)).status, 404, "Draft films are not publicly watchable");
+    assert.equal((await request(`films/${filmId}/reviews`)).status, 404, "Draft film reviews are not publicly visible");
+    assert.equal((await request(`films/${filmId}/reviews`, "PUT", { rating: 5, body: "Draft review" }, owner.cookie)).status, 404,
+      "A draft film cannot receive a review before publication");
     assert.equal((await request(`films/${filmId}/publish`, "POST", { action: "publish" }, owner.cookie)).status, 409);
     assert.equal((await request(`films/${filmId}/publish`, "POST", { action: "publish" }, member.cookie)).status, 404);
     const matchingDatabase = await pool.query("SELECT owner_id FROM films WHERE id=$1", [filmId]);
@@ -200,6 +203,27 @@ async function main() {
       const initialComments = await request(`films/${filmId}/comments`);
       assert.equal(initialComments.status, 200); assert.deepEqual(initialComments.body.comments, []);
       assert.equal((await request(`films/${filmId}/comments`, "POST", { body: "Anonymous comment" })).status, 401);
+      const emptyReviews = await request(`films/${filmId}/reviews`);
+      assert.equal(emptyReviews.status, 200); assert.equal(emptyReviews.body.summary.review_count, 0);
+      assert.equal(emptyReviews.body.summary.average_rating, 0); assert.equal(emptyReviews.body.my_review, null);
+      assert.equal((await request(`films/${filmId}/reviews`, "PUT", { rating: 5, body: "Anonymous review" })).status, 401,
+        "Writing a review requires an authenticated CineMesh account");
+      assert.equal((await request(`films/${filmId}/reviews`, "PUT", { rating: 6, body: "Invalid rating" }, member.cookie)).status, 400);
+      assert.equal((await request(`films/${filmId}/reviews`, "PUT", { rating: 4, body: "   " }, member.cookie)).status, 400);
+      const ownerReview = await request(`films/${filmId}/reviews`, "PUT", { rating: 3, body: "The film has a patient rhythm." }, owner.cookie);
+      assert.equal(ownerReview.status, 200); assert.equal(ownerReview.body.review.author_display_name, "First contributor");
+      const memberReview = await request(`films/${filmId}/reviews`, "PUT", { rating: 4, body: "The second shot follows the first." }, member.cookie);
+      assert.equal(memberReview.status, 200); assert.equal(memberReview.body.summary.review_count, 2);
+      const memberUpdate = await request(`films/${filmId}/reviews`, "PUT", { rating: 5, body: "The second shot follows the first beautifully." }, member.cookie);
+      assert.equal(memberUpdate.status, 200); assert.equal(memberUpdate.body.summary.average_rating, 4);
+      const reviewRows = await pool.query("SELECT author_id,rating,body FROM film_reviews WHERE film_id=$1 ORDER BY author_id", [filmId]);
+      assert.equal(reviewRows.rowCount, 2, "Each account has one persistent review per film");
+      assert.equal(reviewRows.rows.find(row => row.author_id === member.body.id).rating, 5, "Updating a review replaces that contributor's rating");
+      const publicReviews = await request(`films/${filmId}/reviews`);
+      assert.equal(publicReviews.body.reviews.length, 2); assert.equal(publicReviews.body.my_review, null);
+      const signedReviews = await request(`films/${filmId}/reviews`, "GET", undefined, member.cookie);
+      assert.equal(signedReviews.body.my_review.id, memberUpdate.body.review.id);
+      assert.equal(signedReviews.body.reviews.find(review => review.id === memberUpdate.body.review.id).is_own, true);
       if (moderationAdmin?.cookie) {
         assert.equal((await request("reports", "POST", { targetType: "film", targetId: filmId, category: "copyright", details: "Check usage rights." }, member.cookie)).status, 201);
         const filmReport = (await request("admin/reports", "GET", undefined, moderationAdmin.cookie)).body.reports.find(item => item.target_type === "film" && item.target_id === filmId);
@@ -211,12 +235,18 @@ async function main() {
         assert.equal((await request("admin/reports", "POST", { reportId: filmReport.id, action: "hide_film", note: "Policy review." }, moderationAdmin.cookie)).status, 200);
         assert.equal((await request("discover")).body.films.some(item => item.id === filmId), false);
         assert.equal((await request(`watch/${filmId}`)).status, 404);
+        assert.equal((await request(`films/${filmId}/reviews`)).status, 404, "Moderated films hide their review list");
+        assert.equal((await request(`films/${filmId}/reviews`, "PUT", { rating: 2, body: "Hidden film review" }, member.cookie)).status, 404,
+          "Moderated films reject new reviews");
+        assert.equal((await request(`films/${filmId}/reviews`, "DELETE", {}, member.cookie)).status, 404,
+          "Moderated films reject review deletion while hidden");
         assert.equal((await fetch(`${base}/api/media/${renderId}`)).status, 404, "A moderated render is no longer public");
         const deniedRepublish = await request(`films/${filmId}/publish`, "POST", { action: "publish" }, owner.cookie);
         assert.equal(deniedRepublish.status, 409);
         assert.match(deniedRepublish.body.error, /moderator/i);
         assert.equal((await request("admin/reports", "POST", { reportId: filmReport.id, action: "restore_film", note: "Reviewed and restored." }, moderationAdmin.cookie)).status, 200);
         assert.equal((await request("discover")).body.films.some(item => item.id === filmId), true);
+        assert.equal((await request(`films/${filmId}/reviews`)).body.summary.review_count, 2, "Restoring a film makes its saved reviews visible again");
         const actions = await pool.query("SELECT action FROM moderation_actions WHERE report_id=$1 ORDER BY created_at,id", [filmReport.id]);
         assert.deepEqual(actions.rows.map(row => row.action), ["hide_film", "restore_film"]);
         assert.equal((await request("admin/reports", "POST", { reportId: filmReport.id, action: "dismiss" }, moderationAdmin.cookie)).status, 200);
@@ -234,10 +264,17 @@ async function main() {
       assert.equal(comment.status, 201); assert.equal(comment.body.comment.author_display_name, "Second contributor");
       const publicComments = await request(`films/${filmId}/comments`);
       assert.equal(publicComments.body.comments.length, 1); assert.equal(publicComments.body.comments[0].id, comment.body.comment.id);
+      const memberDelete = await request(`films/${filmId}/reviews`, "DELETE", {}, member.cookie);
+      assert.equal(memberDelete.status, 200); assert.equal(memberDelete.body.summary.review_count, 1);
+      const afterMemberDelete = await request(`films/${filmId}/reviews`);
+      assert.equal(afterMemberDelete.body.reviews.length, 1);
+      assert.equal(afterMemberDelete.body.reviews[0].id, ownerReview.body.review.id, "A contributor can only remove their own review");
       assert.equal((await request(`films/${filmId}/publish`, "POST", { action: "unpublish" }, owner.cookie)).body.status, "draft");
       assert.equal((await request("discover")).body.films.some(item => item.id === filmId), false);
       assert.equal((await fetch(`${base}/api/media/${renderId}`)).status, 404, "Unpublishing removes public render access");
       assert.equal((await request(`films/${filmId}/comments`)).body.comments.length, 0, "Unpublished films no longer expose comments");
+      assert.equal((await request(`films/${filmId}/reviews`)).status, 404, "Unpublished films no longer expose ratings or reviews");
+      assert.equal((await request(`films/${filmId}/reviews`, "PUT", { rating: 2, body: "Unpublished film review" }, owner.cookie)).status, 404);
       assert.equal((await request(`films/${filmId}/likes`, "POST", {}, owner.cookie)).status, 404, "Unpublished films no longer accept likes");
       assert.equal((await request(`profiles/${owner.body.id}`)).body.films.length, 0, "Unpublished films leave the public portfolio");
       assert.equal((await request(`watch/${filmId}`)).status, 404, "Unpublished films are not publicly watchable");

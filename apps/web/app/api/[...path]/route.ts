@@ -134,6 +134,32 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
          LIMIT 100`, [path[1]]);
       return json({ comments: result.rows });
     }
+    if (path[0] === "films" && path[1] && uuid.test(path[1]) && path[2] === "reviews" && path.length === 3 && method === "GET") {
+      const [summary, reviews, mine] = await Promise.all([
+        db.query(
+          `SELECT COALESCE(ROUND(AVG(r.rating)::numeric,1),0)::float AS average_rating,
+                  count(r.id)::integer AS review_count
+           FROM films f LEFT JOIN film_reviews r ON r.film_id=f.id
+           WHERE f.id=$1 AND f.status='published' AND f.moderation_hidden_at IS NULL
+           GROUP BY f.id`, [path[1]]),
+        db.query(
+          `SELECT r.id,r.rating,r.body,r.created_at,r.updated_at,u.display_name AS author_display_name,
+                  ($2::uuid IS NOT NULL AND r.author_id=$2) AS is_own
+           FROM film_reviews r
+           JOIN films f ON f.id=r.film_id
+           JOIN users u ON u.id=r.author_id
+           WHERE r.film_id=$1 AND f.status='published' AND f.moderation_hidden_at IS NULL
+           ORDER BY r.created_at DESC,r.id DESC
+           LIMIT 100`, [path[1], user?.id ?? null]),
+        user ? db.query(
+          `SELECT r.id,r.rating,r.body,r.created_at,r.updated_at,u.display_name AS author_display_name,true AS is_own
+           FROM film_reviews r JOIN films f ON f.id=r.film_id JOIN users u ON u.id=r.author_id
+           WHERE r.film_id=$1 AND r.author_id=$2 AND f.status='published' AND f.moderation_hidden_at IS NULL`,
+          [path[1], user.id]) : Promise.resolve({ rows: [] }),
+      ]);
+      if (!summary.rows[0]) return error("Film not found", 404);
+      return json({ summary: summary.rows[0], reviews: reviews.rows, my_review: mine.rows[0] ?? null });
+    }
     if (!user) return error("Sign in required", 401);
     if (path[0] === "films" && path[1] && uuid.test(path[1]) && path[2] === "likes" && path.length === 3 && ["POST", "DELETE"].includes(method)) {
       const client = await db.connect();
@@ -162,6 +188,43 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
          RETURNING id,body,created_at`, [randomUUID(), path[1], user.id, comment]);
       if (!result.rows[0]) return error("Film not found", 404);
       return json({ comment: { ...result.rows[0], author_display_name: user.display_name } }, 201);
+    }
+    if (path[0] === "films" && path[1] && uuid.test(path[1]) && path[2] === "reviews" && path.length === 3 && method === "PUT") {
+      const input = await body(request);
+      if (!input || typeof input !== "object" || Array.isArray(input)) return error("Invalid review", 400);
+      const rating = input.rating;
+      const reviewBody = typeof input.body === "string" ? input.body.trim() : "";
+      if (!Number.isInteger(rating) || rating < 1 || rating > 5) return error("Choose a rating from 1 to 5", 400);
+      if (!reviewBody || reviewBody.length > 4000) return error("Review text is required (up to 4,000 characters)", 400);
+      const result = await db.query(
+        `INSERT INTO film_reviews(id,film_id,author_id,rating,body)
+         SELECT $1,f.id,$3,$4,$5 FROM films f
+         WHERE f.id=$2 AND f.status='published' AND f.moderation_hidden_at IS NULL
+         ON CONFLICT (film_id,author_id) DO UPDATE
+           SET rating=EXCLUDED.rating,body=EXCLUDED.body,updated_at=now()
+         RETURNING id,rating,body,created_at,updated_at`,
+        [randomUUID(), path[1], user.id, rating, reviewBody]);
+      if (!result.rows[0]) return error("Film not found", 404);
+      const summary = await db.query(
+        `SELECT ROUND(AVG(rating)::numeric,1)::float AS average_rating,count(*)::integer AS review_count
+         FROM film_reviews WHERE film_id=$1`, [path[1]]);
+      return json({
+        review: { ...result.rows[0], author_display_name: user.display_name, is_own: true },
+        summary: summary.rows[0],
+      });
+    }
+    if (path[0] === "films" && path[1] && uuid.test(path[1]) && path[2] === "reviews" && path.length === 3 && method === "DELETE") {
+      const deleted = await db.query(
+        `DELETE FROM film_reviews r USING films f
+         WHERE r.film_id=f.id AND f.id=$1 AND r.author_id=$2
+           AND f.status='published' AND f.moderation_hidden_at IS NULL
+         RETURNING r.id`, [path[1], user.id]);
+      if (!deleted.rowCount) return error("Film or your review was not found", 404);
+      const summary = await db.query(
+        `SELECT COALESCE(ROUND(AVG(rating)::numeric,1),0)::float AS average_rating,
+                count(*)::integer AS review_count
+         FROM film_reviews WHERE film_id=$1`, [path[1]]);
+      return json({ deleted: true, summary: summary.rows[0] });
     }
     if (path[0] === "films" && path.length === 1) {
       if (method === "GET") {

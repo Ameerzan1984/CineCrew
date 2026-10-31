@@ -49,3 +49,29 @@
 .moderation-card blockquote { margin: 0; padding: .85rem 1rem; border-inline-start: 2px solid var(--purple, #9c7bff); background: rgba(255,255,255,.035); white-space: pre-wrap; }
 .moderation-audit { border-top: 1px solid rgba(255,255,255,.1); padding-top: .7rem; }
 .moderation-audit p { font-size: .8rem; color: var(--muted, #a8a8b2); }
+.watch-reviews { border-top: 1px solid #30303a; margin: 16px 0 20px; padding-top: 16px; }
+.watch-reviews h3 { margin: 0 0 12px; font-size: 15px; }
+.watch-review-summary { display: flex; align-items: center; gap: 9px; padding: 11px 12px; border: 1px solid #34313d; border-radius: 6px; background: #111118; }
+.watch-review-summary strong { font-size: 21px; }
+.watch-review-summary span,.watch-review-stars { color: #f4c96b; letter-spacing: 2px; }
+.watch-review-summary small { margin-inline-start: auto; color: #9998a8; font-size: 10px; }
+.watch-review-form { margin-top: 13px; }
+.watch-review-form fieldset { border: 0; padding: 0; margin: 0 0 12px; }
+.watch-review-form legend,.watch-review-form label { display: block; color: #c6c4d0; font-size: 11px; font-weight: 700; margin: 0 0 7px; }
+.watch-review-stars { display: flex; gap: 4px; }
+.watch-review-stars button { padding: 2px 4px; background: transparent; color: inherit; font-size: 22px; line-height: 1; cursor: pointer; }
+.watch-review-stars button[aria-pressed="true"] { color: #ffe08e; }
+.watch-review-stars button[aria-pressed="false"] { color: #9e895e; }
+.watch-review-stars button:focus-visible,.watch-review-stars button:hover { color: #ffe08e; outline: 2px solid #9c7bff; outline-offset: 2px; }
+.watch-review-form textarea { display: block; width: 100%; resize: vertical; border: 1px solid #383744; border-radius: 5px; background: #101015; color: #fff; padding: 9px; font: inherit; font-size: 12px; }
+.watch-review-actions { display: flex; align-items: center; gap: 13px; flex-wrap: wrap; margin-top: 9px; }
+.watch-review-actions .primary-button { margin-top: 0; }
+.watch-review-message { color: #a8e6b6 !important; font-size: 11px !important; }
+.watch-review-list { margin-top: 15px; }
+.watch-review { border-top: 1px solid #30303a; padding: 11px 0; }
+.watch-review>div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.watch-review strong { color: #c5aaff; font-size: 11px; }
+.watch-review>div span { color: #f4c96b; font-size: 11px; white-space: nowrap; }
+.watch-review p { margin: 5px 0 0; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.watch-review-form fieldset:disabled { opacity: .6; }
+.watch-review-form button:disabled { opacity: .55; cursor: wait; }
