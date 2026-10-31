@@ -6,6 +6,8 @@ CineMesh preserves the Apache-2.0 CineCrew source, attribution, configs and exam
 
 The Next.js server talks to `services/film-engine` (FastAPI) with a service secret. Full workflow checkpoints and FilmDSL data remain in the film engine's SQLite database; they are not yet stored in the shared PostgreSQL queue. PostgreSQL stores a per-film CineCrew run registry (run ID, creator, model, status and stage), so authorized browsers can find saved runs on another device without browser storage. This index does not contain agent outputs and cannot recover a missing SQLite checkpoint. Cross-device resume therefore depends on keeping the internal engine's SQLite data on durable storage; multi-replica and database-loss recovery remain open. Keep the engine private. `services/generation-worker` has PostgreSQL scheduling primitives, but they are not yet connected to live provider dispatch. `services/render-worker` concatenates compatible local clips using FFmpeg.
 
+The engine writes a completed stage's checkpoint and status in one SQLite transaction. On resume after a stale heartbeat, it reconciles unfinished stage markers against saved checkpoints: a checkpointed stage is restored as complete, while a stage without a checkpoint is marked interrupted and retried. A local test reopens the same SQLite path and simulates this crash window. It does not prove a real process kill, volume backup/restore, shared storage or multi-replica safety.
+
 PostgreSQL also stores a limited collaboration notification inbox: a film invite creates an event for the invitee, and acceptance or decline creates an event for the inviter. The API scopes reads and read-state changes to the recipient. This is not a general activity feed or a messaging system.
 
 ## What has been proved live

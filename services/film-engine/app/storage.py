@@ -214,6 +214,35 @@ def _agent_run(row):
             "error_code": row["error_code"], "created_at": row["created_at"], "updated_at": row["updated_at"]}
 
 
+def _recover_abandoned_agent_stages(db, run_id, timestamp):
+    """Reconcile stage markers left running after a stale process exited.
+
+    A durable checkpoint means the stage finished even if the old process stopped
+    before updating its status row. Without a checkpoint, the stage is marked
+    failed so the normal resume path can retry it.
+    """
+    running = db.execute(
+        "SELECT stage FROM agent_stage_runs WHERE run_id=? AND status='running'", (run_id,)
+    ).fetchall()
+    for item in running:
+        checkpointed = db.execute(
+            "SELECT 1 FROM agent_run_checkpoints WHERE run_id=? AND stage=?",
+            (run_id, item["stage"]),
+        ).fetchone()
+        if checkpointed:
+            db.execute(
+                "UPDATE agent_stage_runs SET status='completed',error_code=NULL,updated_at=? "
+                "WHERE run_id=? AND stage=? AND status='running'",
+                (timestamp, run_id, item["stage"]),
+            )
+        else:
+            db.execute(
+                "UPDATE agent_stage_runs SET status='failed',error_code='worker_interrupted',updated_at=? "
+                "WHERE run_id=? AND stage=? AND status='running'",
+                (timestamp, run_id, item["stage"]),
+            )
+
+
 def claim_story_editor_run(film_id, run_id, script_segment, binding=None):
     digest, timestamp = hashlib.sha256((binding or script_segment).encode("utf-8")).hexdigest(), now()
     with connection() as db:
@@ -233,6 +262,7 @@ def claim_story_editor_run(film_id, run_id, script_segment, binding=None):
                     age = None
                 if age is None or age.total_seconds() < 900:
                     return {"state": "running", "run": _agent_run(row)}
+                _recover_abandoned_agent_stages(db, run_id, timestamp)
             db.execute("UPDATE agent_runs SET status='running',error_code=NULL,updated_at=? WHERE id=?", (timestamp, run_id))
         else:
             db.execute("INSERT INTO agent_runs(id,film_id,agent,input_hash,script_segment,status,stage,output,error_code,created_at,updated_at) VALUES(?,?,?,?,?,'running','screenplay_writer',NULL,NULL,?,?)",
@@ -283,6 +313,31 @@ def set_agent_stage_run(run_id, stage, status, output=None, error_code=None):
           output=excluded.output,error_code=excluded.error_code,updated_at=excluded.updated_at""",
           (run_id, stage, agent, status, json.dumps(output, ensure_ascii=False) if output is not None else None,
            error_code, timestamp, timestamp))
+        db.commit()
+
+
+def complete_agent_stage_with_checkpoint(run_id, stage, checkpoint, output):
+    """Commit stage completion and its resumable output as one database transaction."""
+    agent = _AGENT_LABELS.get(stage, stage)
+    timestamp = now()
+    with connection() as db:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            "INSERT INTO agent_run_checkpoints VALUES(?,?,?,?) "
+            "ON CONFLICT(run_id,stage) DO UPDATE SET output=excluded.output,created_at=excluded.created_at",
+            (run_id, stage, json.dumps(checkpoint, ensure_ascii=False), timestamp),
+        )
+        db.execute(
+            "UPDATE agent_runs SET stage=?,updated_at=? WHERE id=? AND status='running'",
+            (stage, timestamp, run_id),
+        )
+        db.execute(
+            """INSERT INTO agent_stage_runs(run_id,stage,agent,status,output,error_code,created_at,updated_at)
+              VALUES(?,?,?,'completed',?,NULL,?,?)
+              ON CONFLICT(run_id,stage) DO UPDATE SET agent=excluded.agent,status='completed',
+              output=excluded.output,error_code=NULL,updated_at=excluded.updated_at""",
+            (run_id, stage, agent, json.dumps(output, ensure_ascii=False), timestamp, timestamp),
+        )
         db.commit()
 
 
@@ -467,7 +522,6 @@ def run_cinecrew_agents(film_id, run_id, film_idea, film_settings, access_token,
                 snapshot["screenplay"] = _jsonable(ctx.get("screenplay") or screenplay)
             if ctx.get("scene_blueprint") is not None:
                 save_blueprint(film_id, snapshot["scene_blueprint"])
-            save_agent_checkpoint(run_id, stage_id, snapshot)
             blueprint = ctx.get("scene_blueprint")
             summary = {
                 "shots": len(getattr(blueprint, "shots", []) or []),
@@ -475,7 +529,7 @@ def run_cinecrew_agents(film_id, run_id, film_idea, film_settings, access_token,
                 "locations": len(getattr(ctx.get("asset_library"), "locations", []) or []),
                 "video_jobs": len(getattr(ctx.get("video_jobs"), "jobs", []) or []),
             }
-            set_agent_stage_run(run_id, stage_id, "completed", output=summary)
+            complete_agent_stage_with_checkpoint(run_id, stage_id, snapshot, summary)
 
         with chatgpt_plan_session(access_token, model):
             if not idea_checkpoint:

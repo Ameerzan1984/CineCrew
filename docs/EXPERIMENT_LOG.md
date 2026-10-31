@@ -127,6 +127,14 @@ Runs 41193901765 and 41193897793 passed unit/type/build, provider, migration, Ci
 
 **Change:** Added migration 012 and recipient-bound notifications for film invitation, invitation accepted, and invitation declined events. The inbox API lists only the signed-in recipient's events and marks only their own event as read. The current app header exposes an English/Arabic inbox with unread count and real actions to refresh, mark read, and open invitations. Pending-invitation retries do not create duplicate notifications; successful response events are written in the same transaction as the invitation state change.
 
-**Local checks:** `npm run test:unit` passed 29/29; `npm run lint` passed; `npm run build` passed and emitted `/api/notifications`; `node --check test/continuation.integration.cjs` and `git diff --check` passed. PostgreSQL integration has not yet run for this new migration/routes; it is included in the hosted workflow. No credentials or provider calls were used.
+**Checks:** `npm run test:unit` passed 29/29; `npm run lint` passed; `npm run build` passed and emitted `/api/notifications`; `node --check test/continuation.integration.cjs` and `git diff --check` passed. The full hosted workflow passed on commit `160fcbf682584ba3e902301b0b69d91d0ee90d0a` in PR run [41197844360](https://github.com/Ameerzan1984/CineCrew/actions/runs/41197844360) and push run [41197840247](https://github.com/Ameerzan1984/CineCrew/actions/runs/41197840247), including migration 012, the PostgreSQL two-user notification assertions, and desktop/mobile Playwright. No credentials or provider calls were used.
 
 **Scope:** These are only collaboration lifecycle notifications. There is no general activity feed, push/email delivery, chat or message system yet.
+
+## 2026-10-31 - CineCrew interrupted-stage checkpoint recovery
+
+**Change:** CineCrew stage completion and checkpoint output now commit in one SQLite transaction. A stale run (no heartbeat for 15 minutes) reconciles running stage records with their checkpoint: it restores checkpointed work to completed and marks a stage without a checkpoint as `worker_interrupted` so a retry can safely resume.
+
+**Test:** A deterministic test writes to a temporary on-disk SQLite database, leaves the Art Department checkpoint persisted while its stage marker remains running (the crash window), leaves the next stage uncheckpointed, ages the run, calls `init_db()` on the same file path, and resumes through `run_cinecrew_agents` with pipeline/model boundaries mocked. It confirms only the uncheckpointed stage is retried. It does not kill a service process, run an LLM, or prove shared storage.
+
+**Result:** The Film Engine test suite passed 14/14 using `.venv/Scripts/python.exe -m pytest -q` from `services/film-engine` (one existing Starlette/httpx deprecation warning). The initial system-Python attempt failed collection because the global interpreter does not have the engine test dependencies; rerunning with the repository `.venv` passed. Hosted CI has not yet run this code. SQLite volume backup/restore and multi-replica coordination remain open.
