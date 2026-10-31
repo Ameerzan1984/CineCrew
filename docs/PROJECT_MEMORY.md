@@ -31,7 +31,7 @@ Discover now sends a debounced, cancellable search request to the API. PostgreSQ
 
 The official FNF SDK documents language-model discovery and calls within Higgsfield's hosted application environment. A standalone CineMesh bridge, account-specific model list, structured-output contract and live inference remain unverified. Supercomputer Auto's free-text offer is documented for Supercomputer itself. See [the access review](HIGGSFIELD_LLM_RESEARCH.md). Connections can now browse and search the user's stored MCP tool names, descriptions and input schemas; this read-only display does not prove a tool can run or disclose its cost. No new live provider call or paid request was made.
 
-The catalog UI passed hosted push [41235479745](https://github.com/Ameerzan1984/CineCrew/actions/runs/41235479745) and PR [41235484102](https://github.com/Ameerzan1984/CineCrew/actions/runs/41235484102), with synthetic MCP metadata in browser tests. The next change follows tool-list pages with strict size and cycle limits; its 34 local unit tests, TypeScript and build pass. Live paginated discovery and actual language-model execution remain unverified.
+The catalog UI passed hosted push [41235479745](https://github.com/Ameerzan1984/CineCrew/actions/runs/41235479745) and PR [41235484102](https://github.com/Ameerzan1984/CineCrew/actions/runs/41235484102), with synthetic MCP metadata in browser tests. The subsequent tool-list pagination change passed 34 local unit tests, TypeScript and build, plus hosted push [41235784768](https://github.com/Ameerzan1984/CineCrew/actions/runs/41235784768) and PR [41235789494](https://github.com/Ameerzan1984/CineCrew/actions/runs/41235789494). Live paginated discovery and actual language-model execution remain unverified.
 
 ## ما ثبت أنه يعمل
 
