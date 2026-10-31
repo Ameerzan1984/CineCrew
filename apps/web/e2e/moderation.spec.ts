@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 
-test("users can report a member and configured moderators can dismiss it", async ({ page }, testInfo) => {
+test("users can report a member and configured moderators can dismiss it", async ({ page, browser }, testInfo) => {
   const nonce = randomUUID().slice(0, 8);
   const password = "disposable-moderation-password-123";
   await page.goto("/");
@@ -25,25 +25,39 @@ test("users can report a member and configured moderators can dismiss it", async
   await moderator.getByRole("button", { name: "Submit report" }).click();
   await expect(moderator.getByRole("status")).toContainText("Report submitted");
 
-  const signOut = page.locator("button:visible").filter({ hasText: "Sign out" }).first();
-  await signOut.click();
-  await page.getByRole("button", { name: "Sign in to create" }).click();
-  await page.getByLabel("Email").fill("cinemesh-ci-admin@example.test");
-  await page.getByLabel("Password (at least 12 characters)").fill("CineMesh-CI-Admin-Test-Only-2026!");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  const isMobile = testInfo.project.name === "mobile-chromium";
+  const moderatorContext = await browser.newContext({
+    viewport: page.viewportSize() ?? undefined,
+    isMobile,
+    hasTouch: isMobile,
+    deviceScaleFactor: isMobile ? 3 : 1,
+  });
+  try {
+    const moderatorPage = await moderatorContext.newPage();
+    await moderatorPage.goto(new URL(page.url()).origin);
+    await moderatorPage.getByRole("button", { name: "Sign in to create" }).click();
+    await moderatorPage.getByLabel("Email").fill("cinemesh-ci-admin@example.test");
+    await moderatorPage.getByLabel("Password (at least 12 characters)").fill("CineMesh-CI-Admin-Test-Only-2026!");
+    await moderatorPage.getByRole("button", { name: "Sign in", exact: true }).click();
 
-  if (testInfo.project.name === "mobile-chromium") {
-    const mobileNav = page.locator(".mobile-nav");
-    await expect(mobileNav.locator('option[value="admin"]')).toHaveCount(1);
-    await mobileNav.selectOption("admin");
-  } else {
-    const adminButton = page.getByRole("button", { name: "Admin", exact: true });
-    await expect(adminButton).toBeVisible();
-    await adminButton.click();
+    if (isMobile) {
+      const mobileNav = moderatorPage.locator(".mobile-nav");
+      await expect(mobileNav.locator('option[value="admin"]')).toHaveCount(1);
+      await mobileNav.selectOption("admin");
+    } else {
+      const adminButton = moderatorPage.getByRole("button", { name: "Admin", exact: true });
+      await expect(adminButton).toBeVisible();
+      await adminButton.click();
+    }
+    await expect(moderatorPage.getByRole("heading", { name: "Admin moderation" })).toBeVisible();
+    await expect(moderatorPage.getByText(`Please review this account ${nonce}.`)).toBeVisible();
+    await moderatorPage.getByRole("button", { name: "Dismiss report" }).click();
+    await expect(moderatorPage.getByText("No reports in this queue.")).toBeVisible();
+    await moderatorPage.screenshot({ path: testInfo.outputPath("cinemesh-admin-moderation.png"), fullPage: true });
+
+    await moderatorPage.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(moderatorPage.getByRole("button", { name: "Sign in to create" })).toBeVisible();
+  } finally {
+    await moderatorContext.close();
   }
-  await expect(page.getByRole("heading", { name: "Admin moderation" })).toBeVisible();
-  await expect(page.getByText(`Please review this account ${nonce}.`)).toBeVisible();
-  await page.getByRole("button", { name: "Dismiss report" }).click();
-  await expect(page.getByText("No reports in this queue.")).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("cinemesh-admin-moderation.png"), fullPage: true });
 });
