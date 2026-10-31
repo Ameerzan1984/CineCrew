@@ -46,6 +46,7 @@ test("generation quote token binds a short-lived USD estimate to a specific user
   const token = createGenerationQuoteToken(claims);
   assert.deepEqual(verifyGenerationQuoteToken(token), claims);
   const [body, signature] = token.split(".");
-  assert.throws(() => verifyGenerationQuoteToken(`${body}.${signature.slice(0, -2)}xx`));
+  const changedFirstCharacter = signature[0] === "A" ? "B" : "A";
+  assert.throws(() => verifyGenerationQuoteToken(`${body}.${changedFirstCharacter}${signature.slice(1)}`));
   assert.throws(() => verifyGenerationQuoteToken(createGenerationQuoteToken({ ...claims, expiresAt: Date.now() - 1 })));
 });
