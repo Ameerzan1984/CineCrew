@@ -88,6 +88,27 @@ blueprint  = ctx["scene_blueprint"]   # FilmDSL (SceneBlueprint)
 video_jobs = ctx["video_jobs"]        # VideoJobBatch
 ```
 
+### CineMesh idea-to-FilmDSL run
+
+The CineMesh Film Studio adds a `screenplay_writer` stage before the existing
+CineCrew order. Its web request supplies a film idea and project settings; the
+writer creates a structured screenplay, then the configured Art Department,
+Story Editor, Cinematographer, DSL Validator, VO Director, Technical Director,
+Dailies Reviewer and Production Operator stages run with a request-scoped ChatGPT
+plan session. `ProductionOperatorAgent` builds a `VideoJobBatch`; this planning
+route forces media execution off. The Film Engine saves a named status and a
+resumable checkpoint after each completed stage. Its local run checkpoints use
+the engine's SQLite database, while CineMesh accounts and film collaboration use
+the web app's PostgreSQL database.
+
+This is experimental CineMesh integration code. It does not prove that a user's
+ChatGPT OAuth account, Higgsfield estimate endpoint, or video-generation account
+works until each connection is tested with that user's authorization. Paid video
+submission is separate: the studio first requests an API price estimate, then
+requires the contributor to enter a spend ceiling and explicitly approve one
+request. A missing exact USD estimate blocks submission. A `VideoJobBatch` or a
+mock test is not a generated video.
+
 
 ## Outputs
 

@@ -29,6 +29,11 @@ class FilmUpdate(BaseModel):
     visual_style: str | None = Field(default=None, max_length=160)
 
 
-class StoryEditorRunRequest(BaseModel):
+class FilmIdeaRunRequest(BaseModel):
     run_id: str = Field(pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
-    script_segment: str = Field(min_length=20, max_length=20000)
+    film_idea: str = Field(min_length=20, max_length=20000)
+    title: str = Field(min_length=1, max_length=160)
+    genre: str = Field(default="Drama", max_length=80)
+    duration_minutes: int = Field(default=5, ge=1, le=120)
+    language: str = Field(default="en", min_length=2, max_length=20)
+    visual_style: str = Field(default="Cinematic", max_length=160)

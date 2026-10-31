@@ -48,8 +48,10 @@ export async function POST(request: NextRequest, context: Context) {
       const last = position.rows[0].last as number;
       if (last + shots.length > 100000) { await client.query("ROLLBACK"); return json({ error: "No scene positions remain" }, 409); }
       for (const [index, shot] of shots.entries()) {
-        await client.query(`INSERT INTO scenes(id,film_id,position,title,description,created_by,agent_run_id,agent_shot_id)
-          VALUES($1,$2,$3,$4,$5,NULL,$6,$7)`, [randomUUID(),filmId,last+index+1,shot.title,shot.description,input.run_id,shot.sourceId]);
+        await client.query(`INSERT INTO scenes(id,film_id,position,title,description,created_by,agent_run_id,agent_shot_id,
+          agent_job_id,agent_prompt,agent_planned_duration_seconds,agent_generation_duration_seconds)
+          VALUES($1,$2,$3,$4,$5,NULL,$6,$7,$8,$9,$10,$11)`, [randomUUID(),filmId,last+index+1,shot.title,shot.description,
+          input.run_id,shot.sourceId,shot.jobId,shot.prompt,shot.plannedDurationSeconds,shot.generationDurationSeconds]);
       }
       await client.query("UPDATE films SET updated_at=now() WHERE id=$1", [filmId]);
       await client.query("COMMIT");

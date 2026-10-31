@@ -52,6 +52,25 @@ test("rejects malformed responses and does not imply verification", async () => 
   assert.equal(client.connectionVerified, false);
 });
 
+test("requests an authenticated exact USD estimate without creating a generation", async () => {
+  let captured: { url: string; options: RequestInit } | null = null;
+  const client = new HiggsfieldApiClient(creds, async (url, options = {}) => {
+    captured = { url: String(url), options };
+    return Response.json({ usd: "0.1234", credits: "2.5" });
+  });
+  assert.deepEqual(await client.estimate("/bytedance/seedance-2.5/text-to-video", { prompt: "test", duration: 4 }), { usd: 0.1234 });
+  assert.equal(captured?.url, "https://api.higgsfield.ai/estimate/bytedance/seedance-2.5/text-to-video");
+  assert.equal((captured?.options.headers as Record<string, string>).Authorization, "Key test-id:test-secret");
+  assert.equal(captured?.options.method, "POST");
+  assert.equal(client.connectionVerified, true);
+});
+
+test("fails closed when an estimate has no exact USD price", async () => {
+  const client = new HiggsfieldApiClient(creds, async () => Response.json({ credits: "1.5" }));
+  await assert.rejects(client.estimate("/bytedance/seedance-2.5/text-to-video", { prompt: "test" }), ProviderStateError);
+  assert.equal(client.connectionVerified, false);
+});
+
 test("does not accept forged status URLs returned by a submission", async () => {
   const client = new HiggsfieldApiClient(creds, async () => Response.json({
     status: "queued", request_id: id, status_url: "https://attacker.example/status", cancel_url: handle.cancelUrl,

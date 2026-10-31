@@ -50,13 +50,13 @@ export async function POST(request: NextRequest, context: Context) {
     const { id } = await context.params;
     if (!uuid.test(id)) return json({ error: "Film not found" }, 404);
     const raw = await request.text();
-    if (raw.length > 24_000) return json({ error: "Screenplay excerpt is too long" }, 413);
-    const input = JSON.parse(raw) as { script_segment?: unknown; model?: unknown; run_id?: unknown };
-    if (typeof input.script_segment !== "string" || input.script_segment.trim().length < 20 || input.script_segment.length > 20_000) return json({ error: "Enter a screenplay or scene excerpt (20-20,000 characters)" }, 400);
+    if (raw.length > 24_000) return json({ error: "Film idea and collaborator contributions are too long" }, 413);
+    const input = JSON.parse(raw) as { film_idea?: unknown; model?: unknown; run_id?: unknown };
+    if (typeof input.film_idea !== "string" || input.film_idea.trim().length < 20 || input.film_idea.length > 20_000) return json({ error: "Enter a film idea (20-20,000 characters)" }, 400);
     if (typeof input.model !== "string" || input.model.length > 160) return json({ error: "Choose a ChatGPT model first" }, 400);
     if (typeof input.run_id !== "string" || !uuid.test(input.run_id)) return json({ error: "A valid run ID is required" }, 400);
     const film = await database().query(
-      `SELECT f.engine_film_id FROM films f
+      `SELECT f.engine_film_id,f.title,f.genre,f.duration_minutes,f.language,f.visual_style FROM films f
        LEFT JOIN film_contributors c ON c.film_id=f.id AND c.user_id=$2
        WHERE f.id=$1 AND (f.owner_id=$2 OR c.role='editor')`, [id, user.id]);
     const engineFilmId = film.rows[0]?.engine_film_id;
@@ -66,8 +66,8 @@ export async function POST(request: NextRequest, context: Context) {
       `SELECT s.position,s.title,s.description,u.display_name AS contributor
        FROM scenes s LEFT JOIN users u ON u.id=s.created_by
        WHERE s.film_id=$1 ORDER BY s.position,s.id`, [id]);
-    const combinedScript = buildCollaborativeScript(input.script_segment, contributions.rows);
-    if (combinedScript.length > 20_000) return json({ error: "The screenplay and team shot contributions exceed the agent input limit. Shorten the descriptions and retry." }, 413);
+    const combinedIdea = buildCollaborativeScript(input.film_idea, contributions.rows);
+    if (combinedIdea.length > 20_000) return json({ error: "The film idea and team contributions exceed the agent input limit. Shorten them and retry." }, 413);
 
     const accessToken = await chatGPTAccessToken(user.id);
     const models = await listChatGPTModels(accessToken);
@@ -75,7 +75,15 @@ export async function POST(request: NextRequest, context: Context) {
     const result = await engine(`/films/${encodeURIComponent(engineFilmId)}/cinecrew/story-editor`, {
       method: "POST",
       headers: { "X-ChatGPT-Plan-Access-Token": accessToken, "X-ChatGPT-Plan-Model": input.model },
-      body: JSON.stringify({ run_id: input.run_id, script_segment: combinedScript }),
+      body: JSON.stringify({
+        run_id: input.run_id,
+        film_idea: combinedIdea,
+        title: film.rows[0].title,
+        genre: film.rows[0].genre,
+        duration_minutes: film.rows[0].duration_minutes,
+        language: film.rows[0].language,
+        visual_style: film.rows[0].visual_style || "Cinematic",
+      }),
     });
     if (!result.ok) {
       const detail = await result.json().catch(() => ({})) as { detail?: unknown };

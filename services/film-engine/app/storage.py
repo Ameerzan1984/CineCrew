@@ -69,6 +69,12 @@ def init_db():
           stage TEXT NOT NULL, output TEXT NOT NULL, created_at TEXT NOT NULL,
           PRIMARY KEY(run_id, stage)
         );
+        CREATE TABLE IF NOT EXISTS agent_stage_runs (
+          run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+          stage TEXT NOT NULL, agent TEXT NOT NULL, status TEXT NOT NULL,
+          output TEXT, error_code TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+          PRIMARY KEY(run_id, stage)
+        );
         """)
         columns = {row["name"] for row in db.execute("PRAGMA table_info(agent_runs)")}
         if "script_segment" not in columns:
@@ -208,15 +214,15 @@ def _agent_run(row):
             "error_code": row["error_code"], "created_at": row["created_at"], "updated_at": row["updated_at"]}
 
 
-def claim_story_editor_run(film_id, run_id, script_segment):
-    digest, timestamp = hashlib.sha256(script_segment.encode("utf-8")).hexdigest(), now()
+def claim_story_editor_run(film_id, run_id, script_segment, binding=None):
+    digest, timestamp = hashlib.sha256((binding or script_segment).encode("utf-8")).hexdigest(), now()
     with connection() as db:
         db.execute("BEGIN IMMEDIATE")
         if not db.execute("SELECT 1 FROM films WHERE id=?", (film_id,)).fetchone():
             raise LookupError("Film not found")
         row = db.execute("SELECT * FROM agent_runs WHERE id=?", (run_id,)).fetchone()
         if row:
-            if row["film_id"] != film_id or row["agent"] != "cinecrew_story_editor" or row["input_hash"] != digest:
+            if row["film_id"] != film_id or row["agent"] != "cinecrew_full_pipeline" or row["input_hash"] != digest:
                 raise ValueError("Run ID is already bound to different film input")
             if row["status"] == "completed":
                 return {"state": "completed", "run": _agent_run(row)}
@@ -229,8 +235,8 @@ def claim_story_editor_run(film_id, run_id, script_segment):
                     return {"state": "running", "run": _agent_run(row)}
             db.execute("UPDATE agent_runs SET status='running',error_code=NULL,updated_at=? WHERE id=?", (timestamp, run_id))
         else:
-            db.execute("INSERT INTO agent_runs(id,film_id,agent,input_hash,script_segment,status,stage,output,error_code,created_at,updated_at) VALUES(?,?,?,?,?,'running','assets',NULL,NULL,?,?)",
-                       (run_id, film_id, "cinecrew_story_editor", digest, script_segment, timestamp, timestamp))
+            db.execute("INSERT INTO agent_runs(id,film_id,agent,input_hash,script_segment,status,stage,output,error_code,created_at,updated_at) VALUES(?,?,?,?,?,'running','screenplay_writer',NULL,NULL,?,?)",
+                       (run_id, film_id, "cinecrew_full_pipeline", digest, script_segment, timestamp, timestamp))
         db.commit()
     return {"state": "started", "run": get_agent_run(film_id, run_id)}
 
@@ -255,6 +261,40 @@ def save_agent_checkpoint(run_id, stage, output):
         db.commit()
 
 
+_AGENT_LABELS = {
+    "screenplay_writer": "CineMeshScreenplayWriter",
+    "art_department": "ArtDepartmentAgent",
+    "story_editor": "StoryEditorAgent",
+    "cinematographer": "CinematographerAgent",
+    "dsl_validator": "DSLValidatorAgent",
+    "vo_director": "VODirectorAgent",
+    "technical_director": "TechnicalDirectorAgent",
+    "dailies_reviewer": "DailiesReviewerAgent",
+    "production_operator": "ProductionOperatorAgent",
+}
+
+
+def set_agent_stage_run(run_id, stage, status, output=None, error_code=None):
+    agent = _AGENT_LABELS.get(stage, stage)
+    timestamp = now()
+    with connection() as db:
+        db.execute("""INSERT INTO agent_stage_runs(run_id,stage,agent,status,output,error_code,created_at,updated_at)
+          VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(run_id,stage) DO UPDATE SET agent=excluded.agent,status=excluded.status,
+          output=excluded.output,error_code=excluded.error_code,updated_at=excluded.updated_at""",
+          (run_id, stage, agent, status, json.dumps(output, ensure_ascii=False) if output is not None else None,
+           error_code, timestamp, timestamp))
+        db.commit()
+
+
+def get_agent_stage_runs(run_id):
+    with connection() as db:
+        rows = db.execute("SELECT * FROM agent_stage_runs WHERE run_id=? ORDER BY created_at,stage", (run_id,)).fetchall()
+        return [{"stage": row["stage"], "agent": row["agent"], "status": row["status"],
+                 "output": json.loads(row["output"]) if row["output"] else None,
+                 "error_code": row["error_code"], "created_at": row["created_at"], "updated_at": row["updated_at"]}
+                for row in rows]
+
+
 def complete_agent_run(film_id, run_id, output):
     with connection() as db:
         db.execute("UPDATE agent_runs SET status='completed',stage='complete',output=?,error_code=NULL,updated_at=? WHERE id=? AND film_id=?",
@@ -267,67 +307,237 @@ def fail_agent_run(run_id, stage, error_code):
     with connection() as db:
         db.execute("UPDATE agent_runs SET status='failed',stage=?,error_code=?,updated_at=? WHERE id=?",
                    (stage, error_code, now(), run_id))
+        db.execute("UPDATE agent_stage_runs SET status='failed',error_code=?,updated_at=? WHERE run_id=? AND stage=? AND status='running'",
+                   (error_code, now(), run_id, stage))
         db.commit()
 
 
 def get_agent_run(film_id, run_id):
     with connection() as db:
         row = db.execute("SELECT * FROM agent_runs WHERE id=? AND film_id=?", (run_id, film_id)).fetchone()
-        return _agent_run(row) if row else None
+        result = _agent_run(row) if row else None
+    if result is not None:
+        result["stages"] = get_agent_stage_runs(run_id)
+    return result
 
 
-def run_story_editor(film_id, run_id, script_segment, access_token, model):
-    claim = claim_story_editor_run(film_id, run_id, script_segment)
+def _jsonable(value):
+    if value is None:
+        return None
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    if isinstance(value, dict):
+        return {key: _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
+def _pipeline_snapshot(ctx):
+    return {key: _jsonable(ctx.get(key)) for key in (
+        "screenplay", "script_content", "script_segment", "asset_library",
+        "scene_blueprint", "validation_report", "dailies_report", "video_jobs",
+    )}
+
+
+def _restore_pipeline_context(snapshot):
+    if not snapshot:
+        return {}
+    restored = dict(snapshot)
+    if restored.get("asset_library"):
+        from src.schemas.assets import AssetLibrary
+        restored["asset_library"] = AssetLibrary.model_validate(restored["asset_library"])
+    if restored.get("scene_blueprint"):
+        from src.schemas.blueprint import SceneBlueprint
+        restored["scene_blueprint"] = SceneBlueprint.model_validate(restored["scene_blueprint"])
+    if restored.get("screenplay"):
+        from src.schemas.screenplay import ScreenplayDraft
+        restored["screenplay"] = ScreenplayDraft.model_validate(restored["screenplay"])
+    if restored.get("video_jobs"):
+        from src.schemas.video_jobs import VideoJobBatch
+        restored["video_jobs"] = VideoJobBatch.model_validate(restored["video_jobs"])
+    return restored
+
+
+def _offline_planning_stages(configured):
+    """Copy configured stages and force all provider media generation off."""
+    stages = [dict(item) for item in configured]
+    for item in stages:
+        if item.get("id") == "art_department":
+            item["generate_references"] = False
+        if item.get("id") == "production_operator":
+            item["execute"] = False
+    return stages
+
+
+def run_cinecrew_agents(film_id, run_id, film_idea, film_settings, access_token, model):
+    binding = json.dumps({"film_idea": film_idea, "film_settings": film_settings, "model": model},
+                         ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    claim = claim_story_editor_run(film_id, run_id, film_idea, binding=binding)
     if claim["state"] == "completed":
         return claim["run"]
     if claim["state"] == "running":
         return claim["run"]
 
-    stage = "assets"
+    stage = "screenplay_writer"
     run_root = Path(db_path()).resolve().parent / "runs" / film_id / run_id
     trace_configured = False
+    heartbeat_stop = None
+    heartbeat_thread = None
     try:
+        import threading
+        from src.pipeline import get_enabled_stages, run_pipeline
         from src.utils.agent_trace import set_trace_output_dir
         from src.utils.chatgpt_plan import chatgpt_plan_session
-        from src.agents.art_department import ArtDepartmentAgent
-        from src.agents.story_editor import StoryEditorAgent
-        from src.schemas.assets import AssetLibrary
-        from src.schemas.blueprint import SceneBlueprint
+        from src.schemas.screenplay import ScreenplayDraft
 
         set_trace_output_dir(run_root / "logs")
         trace_configured = True
-        with chatgpt_plan_session(access_token, model):
-            asset_data = get_agent_checkpoint(run_id, "assets")
-            if asset_data is None:
-                set_agent_run_stage(run_id, "assets")
-                library = ArtDepartmentAgent().run(
-                    script_segment,
-                    enable_hallucination_guard=True,
-                    base_path=str(run_root / "assets"),
-                    generate_references=False,
-                )
-                asset_data = library.model_dump(mode="json")
-                save_agent_checkpoint(run_id, "assets", asset_data)
-            else:
-                library = AssetLibrary.model_validate(asset_data)
+        # Keep a long-running real agent run leased so another browser request cannot
+        # claim it while an individual model call or critic loop is still active.
+        heartbeat_stop = threading.Event()
+        def heartbeat():
+            while not heartbeat_stop.wait(30):
+                try:
+                    with connection() as db:
+                        db.execute("UPDATE agent_runs SET updated_at=? WHERE id=? AND status='running'", (now(), run_id))
+                        db.commit()
+                except sqlite3.Error:
+                    pass
+        heartbeat_thread = threading.Thread(target=heartbeat, name=f"cinecrew-heartbeat-{run_id[:8]}", daemon=True)
+        heartbeat_thread.start()
 
-            stage = "story_editor"
-            set_agent_run_stage(run_id, stage)
-            blueprint = StoryEditorAgent().run(script_segment, library)
-            blueprint_data = blueprint.model_dump(mode="json")
+        idea_checkpoint = get_agent_checkpoint(run_id, "screenplay_writer")
+        if idea_checkpoint:
+            writer_data = idea_checkpoint["screenplay"]
+            screenplay = ScreenplayDraft.model_validate(writer_data)
+        else:
+            writer_data = None
+            screenplay = None
+
+        configured = get_enabled_stages()
+        if not configured:
+            raise RuntimeError("No enabled CineCrew pipeline stages are configured")
+        # Planning may create a VideoJobBatch, but provider submissions are a separate
+        # cost-gated action and must never happen from this planning endpoint.
+        # Keep idea planning offline even if local config changes; image/video
+        # generation is a separate user-approved provider action.
+        stages = _offline_planning_stages(configured)
+
+        completed = {
+            item["stage"] for item in get_agent_stage_runs(run_id)
+            if item["status"] == "completed" and get_agent_checkpoint(run_id, item["stage"])
+        }
+        screenplay_snapshot = {
+            "screenplay": writer_data,
+            "script_content": screenplay.screenplay if screenplay else film_idea,
+            "script_segment": screenplay.screenplay[:20000] if screenplay else film_idea[:20000],
+            "film_idea": film_idea,
+            "film_title": film_settings["title"],
+            "film_genre": film_settings["genre"],
+            "duration_minutes": film_settings["duration_minutes"],
+            "language": film_settings["language"],
+            "visual_style": film_settings["visual_style"],
+        }
+        if not idea_checkpoint:
+            # The stage callback stores this same checkpoint after a successful writer call.
+            set_agent_run_stage(run_id, "screenplay_writer")
+            set_agent_stage_run(run_id, "screenplay_writer", "running")
+
+        # Find the newest completed full pipeline snapshot to restore the exact FilmDSL,
+        # AssetLibrary, and downstream outputs from the last successful stage.
+        initial_ctx = dict(screenplay_snapshot)
+        for item in stages:
+            stage_id = item.get("id")
+            if stage_id in completed:
+                saved = get_agent_checkpoint(run_id, stage_id)
+                if saved:
+                    initial_ctx.update(_restore_pipeline_context(saved))
+
+        def persist_stage(stage_id, status, ctx):
+            nonlocal stage
+            stage = stage_id
+            if status == "running":
+                set_agent_run_stage(run_id, stage_id)
+                set_agent_stage_run(run_id, stage_id, "running")
+                return
+            snapshot = _pipeline_snapshot(ctx)
+            if stage_id == "screenplay_writer":
+                snapshot.update({key: screenplay_snapshot[key] for key in screenplay_snapshot if key not in snapshot})
+                snapshot["screenplay"] = _jsonable(ctx.get("screenplay") or screenplay)
+            if ctx.get("scene_blueprint") is not None:
+                save_blueprint(film_id, snapshot["scene_blueprint"])
+            save_agent_checkpoint(run_id, stage_id, snapshot)
+            blueprint = ctx.get("scene_blueprint")
+            summary = {
+                "shots": len(getattr(blueprint, "shots", []) or []),
+                "characters": len(getattr(ctx.get("asset_library"), "characters", []) or []),
+                "locations": len(getattr(ctx.get("asset_library"), "locations", []) or []),
+                "video_jobs": len(getattr(ctx.get("video_jobs"), "jobs", []) or []),
+            }
+            set_agent_stage_run(run_id, stage_id, "completed", output=summary)
+
+        with chatgpt_plan_session(access_token, model):
+            if not idea_checkpoint:
+                # Run only the actual configured screenplay writer stage first, then
+                # checkpoint before any downstream stage begins.
+                writer_stage = next((item for item in stages if item.get("id") == "screenplay_writer"), None)
+                if writer_stage is None:
+                    raise RuntimeError("screenplay_writer must be enabled for idea-to-film runs")
+                ctx = run_pipeline(
+                    film_idea,
+                    stages=[writer_stage],
+                    enable_hallucination_guard=True,
+                    run_root=run_root,
+                    initial_ctx=initial_ctx,
+                    stage_callback=persist_stage,
+                )
+                screenplay = ctx["screenplay"]
+                screenplay_snapshot.update(_pipeline_snapshot(ctx))
+                screenplay_snapshot["screenplay"] = screenplay.model_dump(mode="json")
+                save_agent_checkpoint(run_id, "screenplay_writer", screenplay_snapshot)
+                initial_ctx.update(_restore_pipeline_context(screenplay_snapshot))
+
+            remaining = [item for item in stages if item.get("id") != "screenplay_writer" and item.get("id") not in completed]
+            if remaining:
+                ctx = run_pipeline(
+                    screenplay.screenplay,
+                    stages=remaining,
+                    enable_hallucination_guard=True,
+                    dsl_validator_auto_correct=True,
+                    run_root=run_root,
+                    initial_ctx=initial_ctx,
+                    stage_callback=persist_stage,
+                )
+            else:
+                latest = initial_ctx
+                ctx = latest
+            screenplay = ctx.get("screenplay") or screenplay
+            library = ctx.get("asset_library")
+            blueprint = ctx.get("scene_blueprint")
+            if library is None or blueprint is None:
+                raise RuntimeError("CineCrew pipeline did not produce its Film Bible and FilmDSL")
+            asset_data = _jsonable(library)
+            blueprint_data = _jsonable(blueprint)
             save_blueprint(film_id, blueprint_data)
-            save_agent_checkpoint(run_id, "story_editor", blueprint_data)
             result = {
                 "run_id": run_id,
-                "agent": "CineCrew ArtDepartment + StoryEditor",
+                "agent": "CineMeshScreenplayWriter + CineCrew",
                 "provider": "chatgpt_plan",
                 "model": model,
                 "status": "completed",
+                "screenplay": _jsonable(screenplay),
                 "characters": len(library.characters),
                 "locations": len(library.locations),
                 "shots": len(blueprint.shots),
+                "video_job_count": len(getattr(ctx.get("video_jobs"), "jobs", []) or []),
                 "asset_library": asset_data,
                 "blueprint": blueprint_data,
+                "validation_report": _jsonable(ctx.get("validation_report")),
+                "dailies_report": _jsonable(ctx.get("dailies_report")),
+                "video_jobs": _jsonable(ctx.get("video_jobs")),
+                "stages": get_agent_stage_runs(run_id),
+                "provider_submission": {"submitted": False, "reason": "Awaiting explicit plan and spend-ceiling approval"},
             }
             return complete_agent_run(film_id, run_id, result)
     except Exception as error:
@@ -336,5 +546,9 @@ def run_story_editor(film_id, run_id, script_segment, access_token, model):
         fail_agent_run(run_id, stage, str(code)[:80])
         raise
     finally:
+        if heartbeat_stop is not None:
+            heartbeat_stop.set()
+        if heartbeat_thread is not None:
+            heartbeat_thread.join(timeout=2)
         if trace_configured:
             set_trace_output_dir(None)

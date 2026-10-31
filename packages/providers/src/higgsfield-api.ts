@@ -15,6 +15,7 @@ export interface HiggsfieldResult {
   outputs: { kind: "image" | "video" | "audio"; url: string }[];
   expiresAt: string | null;
 }
+export interface HiggsfieldEstimate { usd: number; }
 export class HiggsfieldHttpError extends Error {
   readonly status: number;
   readonly correlationId: string | null;
@@ -74,6 +75,22 @@ export class HiggsfieldApiClient {
     if (response.status === 202 && acceptEmpty202) return null;
     try { return await response.json(); }
     catch { throw new ProviderStateError("Higgsfield returned an invalid JSON response."); }
+  }
+
+  /** Ask Higgsfield for a pre-generation USD estimate; does not submit a generation. */
+  async estimate(modelPath: string, body: Record<string, unknown>): Promise<HiggsfieldEstimate> {
+    if (!modelPathPattern.test(modelPath) || modelPath.split("/").some(part => part === "." || part === "..") || modelPath.startsWith("/requests/")) {
+      throw new ProviderStateError("Invalid model endpoint path.");
+    }
+    // The estimate route/shape are not confirmed in the model API references we
+    // reviewed. Keep this adapter fail-closed until a live account verifies it.
+    const raw = await this.call(`${API_ORIGIN}/estimate${modelPath}`, "POST", body);
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ProviderStateError("Higgsfield returned an invalid cost estimate.");
+    const quote = raw as Record<string, unknown>;
+    const usd = typeof quote.usd === "number" ? quote.usd : typeof quote.usd === "string" ? Number(quote.usd) : Number.NaN;
+    if (!Number.isFinite(usd) || usd < 0) throw new ProviderStateError("Higgsfield did not return a usable USD estimate.");
+    this.verified = true;
+    return { usd };
   }
 
   /** Submit only an endpoint and body verified against that model's current official docs. */

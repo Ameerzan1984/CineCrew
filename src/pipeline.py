@@ -19,7 +19,7 @@ the layer it owns, and writes the updated blueprint back to the context.
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
@@ -78,6 +78,7 @@ def run_pipeline(
     run_root: Optional[Path] = None,
     initial_ctx: Optional[Dict[str, Any]] = None,
     reuse_trace: bool = False,
+    stage_callback: Optional[Callable[[str, str, Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     """
     Execute the pipeline stages in configured order.
@@ -113,6 +114,7 @@ def run_pipeline(
         set_trace_output_dir(run_root / "logs")
 
     from .agents.art_department import ArtDepartmentAgent
+    from .agents.screenplay_writer import ScreenplayWriterAgent
     from .agents.story_editor import StoryEditorAgent
     from .agents.cinematographer import CinematographerAgent
     from .agents.dsl_validator import DSLValidatorAgent
@@ -177,8 +179,25 @@ def run_pipeline(
         if not stage_id:
             continue
 
+        if stage_callback:
+            stage_callback(stage_id, "running", ctx)
+
         # ── Stage 1: ArtDepartment → AssetLibrary + init SceneBlueprint ──────────
-        if stage_id == "art_department":
+        if stage_id == "screenplay_writer":
+            print(f"\n--- [Pipeline] STAGE 0: ScreenplayWriter [trace_id={trace_id}] ---", flush=True)
+            draft = ScreenplayWriterAgent().run(
+                film_idea=ctx.get("film_idea") or ctx["script_content"],
+                title=ctx.get("film_title") or "Untitled Film",
+                genre=ctx.get("film_genre") or "Drama",
+                duration_minutes=int(ctx.get("duration_minutes") or 5),
+                language=ctx.get("language") or "en",
+                visual_style=ctx.get("visual_style") or "Cinematic",
+            )
+            ctx["screenplay"] = draft
+            ctx["script_content"] = draft.screenplay
+            ctx["script_segment"] = draft.screenplay[:script_segment_max_len]
+
+        elif stage_id == "art_department":
             print(f"\n--- [Pipeline] STAGE 1: ArtDepartment [trace_id={trace_id}] ---", flush=True)
             w = ArtDepartmentAgent()
             ctx["asset_library"] = w.run(
@@ -326,6 +345,9 @@ def run_pipeline(
 
         else:
             print(f"   ⚠️  Unknown stage id: {stage_id!r}, skipping.", flush=True)
+
+        if stage_callback:
+            stage_callback(stage_id, "completed", ctx)
 
     write_index()
     if trace_id:

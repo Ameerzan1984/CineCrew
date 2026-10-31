@@ -19,7 +19,7 @@ from src.schemas.blueprint import SceneBlueprint
 from src.schemas.assets import AssetLibrary
 
 from . import storage
-from .models import AdvanceRequest, FilmCreate, FilmUpdate, StoryEditorRunRequest
+from .models import AdvanceRequest, FilmCreate, FilmUpdate, FilmIdeaRunRequest
 from .pipeline import STAGES
 
 
@@ -166,18 +166,27 @@ def run_film(film_id: str):
 @app.post("/films/{film_id}/cinecrew/story-editor")
 def run_cinecrew_story_editor(
     film_id: str,
-    payload: StoryEditorRunRequest,
+    payload: FilmIdeaRunRequest,
     access_token: str = Header(default="", alias="X-ChatGPT-Plan-Access-Token"),
     model: str = Header(default="", alias="X-ChatGPT-Plan-Model"),
 ):
-    """Run the real CineCrew ArtDepartment and StoryEditor against an approved scene excerpt."""
+    """Run the user's idea through screenplay writing and the configured CineCrew pipeline."""
     if len(access_token) < 32 or len(access_token) > 8192:
         raise HTTPException(401, "A connected ChatGPT plan is required")
     if not model or len(model) > 160:
         raise HTTPException(400, "Select a model from the connected ChatGPT account")
-    get_film(film_id)
+    film = get_film(film_id)
+    if film is None:
+        raise HTTPException(404, "Film not found")
+    film_settings = {
+        "title": payload.title or film["title"],
+        "genre": payload.genre or film.get("genre", "Drama"),
+        "duration_minutes": payload.duration_minutes,
+        "language": payload.language,
+        "visual_style": payload.visual_style or film.get("visual_style", "Cinematic"),
+    }
     try:
-        result = storage.run_story_editor(film_id, payload.run_id.lower(), payload.script_segment, access_token, model)
+        result = storage.run_cinecrew_agents(film_id, payload.run_id.lower(), payload.film_idea, film_settings, access_token, model)
     except LookupError as error:
         raise HTTPException(404, str(error)) from error
     except ValueError as error:

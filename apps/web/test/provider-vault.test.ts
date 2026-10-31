@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { encryptProviderCredentials, decryptProviderCredentials, encryptHiggsfieldMcpTokens, decryptHiggsfieldMcpTokens, encryptHiggsfieldMcpVerifier, decryptHiggsfieldMcpVerifier } from "../lib/provider-vault.ts";
+import { encryptProviderCredentials, decryptProviderCredentials, encryptHiggsfieldMcpTokens, decryptHiggsfieldMcpTokens, encryptHiggsfieldMcpVerifier, decryptHiggsfieldMcpVerifier, createGenerationQuoteToken, verifyGenerationQuoteToken, generationQuoteHash } from "../lib/provider-vault.ts";
 
 test("vault encrypts, binds ciphertext to user, and detects tampering", () => {
   process.env.HIGGSFIELD_VAULT_KEY = Buffer.alloc(32, 1).toString("base64");
@@ -33,4 +33,19 @@ test("MCP tokens and OAuth verifier are encrypted and bound to one user and purp
   assert.equal(decryptHiggsfieldMcpVerifier("user-one",encryptedVerifier),"pkce-verifier");
   assert.throws(()=>decryptHiggsfieldMcpTokens("user-two",encryptedTokens));
   assert.throws(()=>decryptHiggsfieldMcpVerifier("user-one",encryptedTokens));
+});
+
+test("generation quote token binds a short-lived USD estimate to a specific user and shot", () => {
+  process.env.HIGGSFIELD_VAULT_KEY = Buffer.alloc(32, 3).toString("base64");
+  const claims = {
+    userId: "user-one", filmId: "film-one", sceneId: "scene-one", requestKey: "request-one",
+    referenceGenerationId: null, modelPath: "/bytedance/seedance-2.5/text-to-video", durationSeconds: 4,
+    promptHash: generationQuoteHash("exact prompt"), credentialsHash: generationQuoteHash("encrypted user credentials"),
+    estimatedUsd: 0.1234, expiresAt: Date.now() + 60_000,
+  };
+  const token = createGenerationQuoteToken(claims);
+  assert.deepEqual(verifyGenerationQuoteToken(token), claims);
+  const [body, signature] = token.split(".");
+  assert.throws(() => verifyGenerationQuoteToken(`${body}.${signature.slice(0, -2)}xx`));
+  assert.throws(() => verifyGenerationQuoteToken(createGenerationQuoteToken({ ...claims, expiresAt: Date.now() - 1 })));
 });

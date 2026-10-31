@@ -17,7 +17,8 @@ async function contents(client: PoolClient, filmId: string, userId: string, isOw
   await client.query(`UPDATE scene_generation_jobs SET status='uncertain',last_error_code='submission_response_missing',updated_at=now()
     WHERE film_id=$1 AND status='submitting' AND provider_request_id IS NULL AND created_at < now()-interval '3 minutes'`, [filmId]);
   const scenes = await client.query(
-    `SELECT s.id,s.position,s.title,s.description,s.created_by,u.display_name AS creator_name,(s.created_by=$2) AS mine,
+    `SELECT s.id,s.position,s.title,s.description,s.agent_job_id,s.agent_prompt,s.agent_planned_duration_seconds,s.agent_generation_duration_seconds,
+       s.created_by,u.display_name AS creator_name,(s.created_by=$2) AS mine,
        (s.agent_run_id IS NOT NULL AND s.created_by IS NULL) AS claimable
      FROM scenes s LEFT JOIN users u ON u.id=s.created_by WHERE s.film_id=$1 ORDER BY s.position`, [filmId,userId]);
   const characters = await client.query("SELECT id,name,description,asset_id FROM characters WHERE film_id=$1 ORDER BY name,id", [filmId]);

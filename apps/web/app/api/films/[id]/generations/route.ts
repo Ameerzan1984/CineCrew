@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "../../../../../lib/auth";
 import { database } from "../../../../../lib/db";
 import { allowedOrigin } from "../../../../../lib/origin";
-import { decryptProviderCredentials } from "../../../../../lib/provider-vault";
+import { decryptProviderCredentials, verifyGenerationQuoteToken, generationQuoteHash } from "../../../../../lib/provider-vault";
 import { HiggsfieldApiClient, HiggsfieldHttpError, HIGGSFIELD_SEEDANCE_25_MODEL, HIGGSFIELD_SEEDANCE_25_REFERENCE_MODEL, ProviderUnavailableError, seedance25Input, seedance25ReferenceInput } from "../../../../../../../packages/providers/src/index";
 
 export const runtime = "nodejs";
@@ -18,6 +18,7 @@ function publicJob(row: Record<string, unknown>, userId: string) {
     contributor_id: row.contributor_id, contributor_name: row.contributor_name,
     mine: row.contributor_id === userId, model_path: row.model_path, prompt: row.prompt,
     duration_seconds: row.duration_seconds, status: row.status, provider_request_id: row.provider_request_id,
+    estimated_usd: row.estimated_usd ?? null, approved_max_usd: row.approved_max_usd ?? null,
     video_url: row.video_url, video_expires_at: row.video_expires_at,
     media_asset_id: row.media_asset_id ?? null, media_size_bytes: row.media_size_bytes ?? null,
     reference_generation_job_id: row.reference_generation_job_id ?? null,
@@ -62,7 +63,8 @@ export async function POST(request: NextRequest, context: Context) {
     if (raw.length > 4096) return json({ error: "Request too large" }, 413);
     const input = JSON.parse(raw);
     if (!input || typeof input !== "object" || Array.isArray(input) || !uuid.test(input.sceneId ?? "") || !uuid.test(input.requestKey ?? "") ||
-        (input.referenceGenerationId !== undefined && input.referenceGenerationId !== null && !uuid.test(input.referenceGenerationId))) return json({ error: "Invalid generation request" }, 400);
+        (input.referenceGenerationId !== undefined && input.referenceGenerationId !== null && !uuid.test(input.referenceGenerationId)) ||
+        typeof input.quoteToken !== "string" || typeof input.maxCostUsd !== "number" || !Number.isFinite(input.maxCostUsd) || input.maxCostUsd <= 0 || input.maxCostUsd > 10) return json({ error: "A current price quote, explicit approval and spend ceiling are required" }, 400);
 
     const db = database();
     const client = await db.connect();
@@ -76,7 +78,7 @@ export async function POST(request: NextRequest, context: Context) {
     try {
       await client.query("BEGIN");
       const access = await client.query(`SELECT f.owner_id,CASE WHEN f.owner_id=$3 THEN 'owner' ELSE c.role END AS role,
-          s.id AS scene_id,s.position,s.created_by,s.title,s.description,pc.encrypted_credentials
+          s.id AS scene_id,s.position,s.created_by,s.title,s.description,s.agent_prompt,s.agent_generation_duration_seconds,pc.encrypted_credentials
         FROM films f JOIN scenes s ON s.film_id=f.id
         LEFT JOIN film_contributors c ON c.film_id=f.id AND c.user_id=$3
         LEFT JOIN provider_connections pc ON pc.user_id=$3 AND pc.provider='higgsfield-api'
@@ -102,9 +104,11 @@ export async function POST(request: NextRequest, context: Context) {
         referenceUrl = earlier.rows[0].video_url;
         referenceGenerationId = input.referenceGenerationId;
       }
-      prompt = `${scene.title}\n${scene.description}`.trim();
+      prompt = (typeof scene.agent_prompt === "string" && scene.agent_prompt.trim()
+        ? scene.agent_prompt : `${scene.title}\n${scene.description}`).trim();
+      const durationSeconds = Number.isInteger(scene.agent_generation_duration_seconds) ? scene.agent_generation_duration_seconds : 4;
       modelPath = referenceUrl ? HIGGSFIELD_SEEDANCE_25_REFERENCE_MODEL : HIGGSFIELD_SEEDANCE_25_MODEL;
-      try { generationInput = referenceUrl ? seedance25ReferenceInput(prompt,referenceUrl,4) : seedance25Input(prompt,4); }
+      try { generationInput = referenceUrl ? seedance25ReferenceInput(prompt,referenceUrl,durationSeconds) : seedance25Input(prompt,durationSeconds); }
       catch (error) { await client.query("ROLLBACK"); return json({ error: error instanceof Error ? error.message : "Invalid shot prompt" }, 400); }
 
       const existing = await client.query("SELECT * FROM scene_generation_jobs WHERE contributor_id=$1 AND request_key=$2 FOR UPDATE", [user.id,input.requestKey]);
@@ -115,12 +119,22 @@ export async function POST(request: NextRequest, context: Context) {
         const job = await db.query("SELECT j.*,a.id AS media_asset_id,a.size_bytes AS media_size_bytes,s.title AS scene_title,u.display_name AS contributor_name FROM scene_generation_jobs j JOIN scenes s ON s.id=j.scene_id JOIN users u ON u.id=j.contributor_id LEFT JOIN media_assets a ON a.generation_job_id=j.id AND a.kind='generation_clip' WHERE j.id=$1", [prior.id]);
         return json(publicJob(job.rows[0], user.id), prior.provider_request_id ? 200 : 202);
       }
+      let quote: ReturnType<typeof verifyGenerationQuoteToken>;
+      try { quote = verifyGenerationQuoteToken(input.quoteToken); }
+      catch { await client.query("ROLLBACK"); return json({ error: "The price quote expired. Request a fresh quote before submitting." }, 409); }
+      if (quote.userId !== user.id || quote.filmId !== filmId || quote.sceneId !== input.sceneId ||
+          quote.requestKey !== input.requestKey || quote.referenceGenerationId !== referenceGenerationId ||
+          quote.modelPath !== modelPath || quote.durationSeconds !== durationSeconds || quote.promptHash !== generationQuoteHash(prompt) ||
+          quote.credentialsHash !== generationQuoteHash(encrypted) || quote.estimatedUsd > input.maxCostUsd) {
+        await client.query("ROLLBACK");
+        return json({ error: "The approved quote does not match this shot or exceeds your spend ceiling. Re-estimate and review the shot." }, 409);
+      }
       const active = await client.query(`SELECT id,status FROM scene_generation_jobs WHERE scene_id=$1 AND contributor_id=$2
         AND status IN ('submitting','uncertain','queued','in_progress') ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [input.sceneId,user.id]);
       if (active.rowCount) { await client.query("ROLLBACK"); return json({ error: "A shot request is already active or uncertain. Check its status before starting another paid request.", jobId: active.rows[0].id, status: active.rows[0].status }, 409); }
       jobId = randomUUID();
-      await client.query(`INSERT INTO scene_generation_jobs(id,film_id,scene_id,contributor_id,request_key,model_path,prompt,duration_seconds,status,reference_generation_job_id)
-        VALUES($1,$2,$3,$4,$5,$6,$7,4,'submitting',$8)`, [jobId,filmId,input.sceneId,user.id,input.requestKey,modelPath,prompt,referenceGenerationId]);
+      await client.query(`INSERT INTO scene_generation_jobs(id,film_id,scene_id,contributor_id,request_key,model_path,prompt,duration_seconds,status,reference_generation_job_id,estimated_usd,approved_max_usd)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,'submitting',$9,$10,$11)`, [jobId,filmId,input.sceneId,user.id,input.requestKey,modelPath,prompt,durationSeconds,referenceGenerationId,quote.estimatedUsd,input.maxCostUsd]);
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");

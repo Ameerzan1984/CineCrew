@@ -16,6 +16,7 @@ pipeline:
   # order is execution order, and `enabled: false` skips a stage.
   #
   #   art_department     -> Blueprint.metadata + global_style + AssetLibrary  (init)
+  #   screenplay_writer -> original screenplay from the user's film idea (preparation)
   #   story_editor       -> shots[].narrative_layer            (Layer 1: narrative)
   #   cinematographer    -> shots[].staging_layer              (Layer 2: staging)
   #   dsl_validator      -> validate staging_layer entity IDs
@@ -25,6 +26,8 @@ pipeline:
   #   production_operator-> shots[].assembly_layer (Layer 4) + VideoJobBatch (video_jobs.json)
   #                         + optional execution with VLM review (see options below)
   stages:
+    - id: screenplay_writer
+      enabled: true
     - id: art_department
       enabled: true
       generate_references: false   # render character sheets / location establishing shots (T2I_*) for assets without an image
@@ -70,7 +73,7 @@ pipeline:
 limits:
   # === Physical input truncation (only these two) ===
   script_art_department: 20000          # Gate A: max script length fed to ArtDepartment (global view)
-  script_segment_dsl: 10000            # Gate B: script segment used to build the DSL; reused downstream (no re-truncation)
+  script_segment_dsl: 20000            # Gate B: script segment used to build the DSL; reused downstream (no re-truncation)
   # === Field / content length constraints (not script truncation) ===
   subject_action_max: 100              # subject_action summary length
   director_note_excerpt: 500           # director-note content compression

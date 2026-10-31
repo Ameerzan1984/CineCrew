@@ -9,6 +9,7 @@ the honest mapping (no agents were invented to match the paper).
 
 | Paper crew role        | Where it lives in code                                   | Notes |
 |------------------------|----------------------------------------------------------|-------|
+| **CineMesh Screenplay Writer** | `screenplay_writer/` (`screenplay_writer_agent.py`, `screenplay_writer.yaml`) | CineMesh-only pre-pipeline stage: expands a user film idea into a structured screenplay draft. It feeds the canonical CineCrew stages below; it is not one of the paper's original crew roles. |
 | **Showrunner**         | `art_department/` (`project_settings.yaml`, name "Showrunner") | Global meta + production constraints (`ProjectSettings`). Not a separate agent — produced inside the Art Department package alongside the asset library. |
 | **Art Department**     | `art_department/` (`art_department_agent.py` `ArtDepartmentAgent` → `character_prompt.py` `CharacterPromptAgent` → `T2IClient`) | Initializes the `AssetLibrary` from the script (character sheets, sets, props), then generates each character's reference-sheet T2I prompt and image. See "Persona / character initialization" below. |
 | **Story Editor**       | `story_editor/` (`story_editor_agent.py` `StoryEditorAgent`) | FilmDSL Layer 1 (narrative actions, emotion beats, dialogue). |

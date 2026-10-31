@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 // A 32-byte, base64-encoded server secret; rotation needs re-encryption, not silent replacement.
 function vaultKey(): Buffer {
@@ -39,6 +39,51 @@ export function decryptHiggsfieldMcpVerifier(userId: string, ciphertext: string)
   const value = decryptScopedValue(userId, "higgsfield-mcp-oauth-state", ciphertext);
   if (typeof value.verifier !== "string") throw new Error("Invalid encrypted OAuth verifier");
   return value.verifier;
+}
+
+export type GenerationQuoteClaims = {
+  userId: string; filmId: string; sceneId: string; requestKey: string;
+  referenceGenerationId: string | null; modelPath: string; promptHash: string;
+  credentialsHash: string; durationSeconds: number; estimatedUsd: number; expiresAt: number;
+};
+
+export function createGenerationQuoteToken(claims: GenerationQuoteClaims): string {
+  const body = Buffer.from(JSON.stringify(claims), "utf8").toString("base64url");
+  const signature = createHmac("sha256", quoteSigningKey()).update(body).digest("base64url");
+  return `${body}.${signature}`;
+}
+
+export function verifyGenerationQuoteToken(token: string): GenerationQuoteClaims {
+  if (typeof token !== "string" || token.length > 4096) throw new Error("A current Higgsfield price quote is required");
+  const parts = token.split(".");
+  if (parts.length !== 2) throw new Error("Invalid Higgsfield price quote");
+  const expected = createHmac("sha256", quoteSigningKey()).update(parts[0]).digest();
+  let supplied: Buffer;
+  try { supplied = Buffer.from(parts[1], "base64url"); }
+  catch { throw new Error("Invalid Higgsfield price quote"); }
+  if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) throw new Error("Invalid Higgsfield price quote");
+  let claims: GenerationQuoteClaims;
+  try { claims = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8")) as GenerationQuoteClaims; }
+  catch { throw new Error("Invalid Higgsfield price quote"); }
+  if (!claims || typeof claims !== "object" || typeof claims.userId !== "string" ||
+      typeof claims.filmId !== "string" || typeof claims.sceneId !== "string" ||
+      typeof claims.requestKey !== "string" || typeof claims.modelPath !== "string" ||
+      typeof claims.promptHash !== "string" || typeof claims.credentialsHash !== "string" ||
+      !(claims.referenceGenerationId === null || typeof claims.referenceGenerationId === "string") ||
+      typeof claims.durationSeconds !== "number" || !Number.isInteger(claims.durationSeconds) || claims.durationSeconds < 4 || claims.durationSeconds > 30 ||
+      typeof claims.estimatedUsd !== "number" || !Number.isFinite(claims.estimatedUsd) ||
+      typeof claims.expiresAt !== "number" || claims.expiresAt <= Date.now() || claims.expiresAt > Date.now() + 6 * 60 * 1000) {
+    throw new Error("Higgsfield price quote has expired or is invalid");
+  }
+  return claims;
+}
+
+export function generationQuoteHash(value: string): string {
+  return createHmac("sha256", quoteSigningKey()).update(`quote-value:${value}`).digest("hex");
+}
+
+function quoteSigningKey(): Buffer {
+  return createHmac("sha256", vaultKey()).update("cinemesh:higgsfield-generation-quote:v1").digest();
 }
 
 function encryptScopedValue(userId: string, purpose: string, value: Record<string, unknown>): string {
