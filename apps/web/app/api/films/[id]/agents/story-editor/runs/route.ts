@@ -14,6 +14,10 @@ export async function GET(_request: Request, context: Context) {
     if (!user) return json({ error: "Sign in required" }, 401);
     const { id } = await context.params;
     if (!uuid.test(id)) return json({ error: "Film not found" }, 404);
+    const access = await database().query(
+      `SELECT 1 FROM films f LEFT JOIN film_contributors c ON c.film_id=f.id AND c.user_id=$2
+       WHERE f.id=$1 AND (f.owner_id=$2 OR c.role='editor')`, [id,user.id]);
+    if (!access.rows[0]) return json({ error: "Film not found" }, 404);
     const result = await database().query(
       `SELECT r.run_id AS id,r.model,r.status,r.stage,r.error_code,r.created_at,r.updated_at,
               r.created_by,u.display_name AS created_by_name,(r.created_by=$2) AS can_resume
