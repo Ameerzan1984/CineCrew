@@ -164,8 +164,8 @@ class ConfigurableAgent:
             duration = time.perf_counter() - start
             raw_response = _serialize_result(result_content) if result_content is not None else ""
             metadata = {
-                "model": self._model_override or Config.LLM_MODEL,
-                "provider": Config.LLM_PROVIDER,
+                "model": getattr(self._client, "selected_model", None) or self._model_override or Config.LLM_MODEL,
+                "provider": getattr(self._client, "provider_name", None) or Config.LLM_PROVIDER,
             }
             if images:
                 metadata["images"] = ", ".join(Path(i).name for i in images)

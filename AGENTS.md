@@ -124,3 +124,7 @@ art_department → story_editor → cinematographer → dsl_validator → vo_dir
 - Don't commit anything under `data/`, `.env`, or media (`.mp4`, `.png` outside
   `docs/` and `our_dataset/`) — see `.gitignore`.
 - No secrets, absolute local paths, or hostnames in code, configs, or examples.
+
+## CineMesh additions
+
+The original CineCrew conventions above continue to apply. CineMesh components are experimental: read ARCHITECTURE.md, DEVELOPMENT_PLAN.md, docs/PROJECT_MEMORY.md and docs/NEXT_STEPS.md before changing boundaries. Add verified provider runs to docs/EXPERIMENT_LOG.md. Never represent simulated output as provider-generated media, and never expose the unauthenticated local film service publicly. Keep credentials out of source, logs, browser storage and Markdown. Run the relevant component tests and build when changing code.

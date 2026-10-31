@@ -1,0 +1,64 @@
+# Local development stack. Supply secrets through environment variables, never Git.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cinemesh
+      POSTGRES_DB: cinemesh
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cinemesh -d cinemesh"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  film-engine:
+    build:
+      context: .
+      dockerfile: services/film-engine/Dockerfile
+    environment:
+      FILM_ENGINE_SERVICE_TOKEN: ${FILM_ENGINE_SERVICE_TOKEN:?Set FILM_ENGINE_SERVICE_TOKEN}
+      CINEMESH_ENGINE_DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL with host postgres}
+      CINEMESH_ENGINE_PG_SCHEMA: cinemesh_engine
+    volumes:
+      - film_data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    command: ["npm", "run", "db:migrate"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL with host postgres}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL with host postgres}
+      FILM_ENGINE_URL: http://film-engine:8001
+      FILM_ENGINE_SERVICE_TOKEN: ${FILM_ENGINE_SERVICE_TOKEN:?Set FILM_ENGINE_SERVICE_TOKEN}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+      HIGGSFIELD_VAULT_KEY: ${HIGGSFIELD_VAULT_KEY:-}
+      CHATGPT_VAULT_KEY: ${CHATGPT_VAULT_KEY:-}
+      CINEMESH_MEDIA_DIR: /data/media
+    volumes:
+      - media_data:/data/media
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      film-engine:
+        condition: service_started
+volumes:
+  postgres_data:
+  film_data:
+  media_data:
