@@ -16,7 +16,11 @@ async function request(path, method = "GET", data, cookie) {
     headers: { origin: base, ...(cookie ? { cookie } : {}), ...(data ? { "content-type": "application/json" } : {}) },
     ...(data ? { body: JSON.stringify(data) } : {}),
   });
-  return { status: response.status, body: await response.json(), cookie: response.headers.get("set-cookie")?.split(";")[0] };
+  const rawBody = await response.text();
+  let body;
+  try { body = JSON.parse(rawBody); }
+  catch { throw new Error(`${method} ${path} returned non-JSON HTTP ${response.status}: ${rawBody.slice(0, 240)}`); }
+  return { status: response.status, body, cookie: response.headers.get("set-cookie")?.split(";")[0] };
 }
 
 async function main() {

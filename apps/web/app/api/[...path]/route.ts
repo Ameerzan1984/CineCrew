@@ -187,4 +187,4 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
     return error("The service is unavailable or the request could not be completed",503);
   }
 }
-export { handle as GET, handle as POST, handle as PUT };
+export { handle as GET, handle as POST, handle as PUT, handle as DELETE };

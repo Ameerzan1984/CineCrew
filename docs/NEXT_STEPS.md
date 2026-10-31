@@ -81,3 +81,8 @@ Discover publishing and a GitHub Actions PostgreSQL/Playwright workflow were add
 ## Latest checkpoint — 2026-10-31
 
 The hosted PostgreSQL CI verified migrations and the auth/collaboration integration after correcting test-only assumptions. Published Discover now has like/unlike and comments backed by PostgreSQL with publication-aware read/write access. The web unit tests, TypeScript check and production build pass locally. Push the pending social-action change, wait for its PostgreSQL + Playwright run, and fix any failures. Then continue with user profiles/Watch details and reliable background generation; live OAuth/model and Higgsfield account checks still need the user's official browser authorization and approved credentials, and paid generation still requires per-request consent.
+
+
+### CI follow-up
+
+Run `04e0fbd` passed database migrations, web unit/type/build, provider, CineCrew engine, scheduling and render checks; auth/collaboration integration also passed. The continuation integration found a missing `DELETE` export, now fixed locally along with richer test diagnostics. Push the fix and wait for a clean PostgreSQL + Playwright run before recording social integration as verified.
