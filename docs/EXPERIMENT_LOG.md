@@ -204,4 +204,6 @@ From branch `cinemesh` at base `39bfd5138f62cf3b3970cfd3f7df3b08276eb3f4`, added
 
 Completed agent runs now display their persisted character/personality/relationship data, locations, props, and FilmDSL in the Film Studio result. The UI renders a selected set of library fields and does not display reference image/audio local paths. At the Next.js boundary, both GET and POST agent-run responses recursively remove filesystem path fields and reference variation paths; one new unit test verifies redaction and preserved display data.
 
-**Local results:** 31/31 web unit tests passed; `npm run lint`, `npm run build`, Playwright discovery (12 desktop/mobile cases), `git diff --check`, and continuation-script syntax check passed. Hosted CI and a browser review of a real saved run are pending. No real LLM or paid provider request was submitted.
+**Local results:** 31/31 web unit tests passed; `npm run lint`, `npm run build`, Playwright discovery (12 desktop/mobile cases), `git diff --check`, and continuation-script syntax check passed.
+
+**Hosted results:** Push run [41209272113](https://github.com/Ameerzan1984/CineCrew/actions/runs/41209272113) and PR run [41209276390](https://github.com/Ameerzan1984/CineCrew/actions/runs/41209276390) passed PostgreSQL continuation, Film Engine checks, and desktop/mobile E2E. The browser workflow did not authorize ChatGPT or load a real saved model run. No real LLM or paid provider request was submitted.

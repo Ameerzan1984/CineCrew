@@ -191,8 +191,8 @@ The PostgreSQL continuation scenario covers authentication, per-owner list isola
 
 No LLM, ChatGPT, Higgsfield, or paid media generation was used for this feature. It does not change the status of live model/provider acceptance criteria.
 
-## Saved CineCrew Film Bible and FilmDSL review (2026-10-31; hosted CI pending)
+## Saved CineCrew Film Bible and FilmDSL review (2026-10-31; hosted CI passed)
 
 `CineCrewAgentRun` now renders the saved completed run's generated character details, relationships, locations, props and FilmDSL in collapsible review sections. This uses the run output already persisted by the private Film Engine; it does not create sample assets or claim that a new agent run succeeded. Asset editing remains the simpler PostgreSQL Production form and is not yet synchronized back into the canonical Film Engine AssetLibrary.
 
-Both the saved-run GET and new-run POST now recursively remove local path fields and reference-image variation paths before returning data to the browser. A unit test covers path redaction while retaining reviewable data. Local web unit tests (31), TypeScript, production build, Playwright discovery (12), and `git diff --check` pass. Hosted CI is pending. No live ChatGPT/LLM/Higgsfield call or paid generation was made; no actual saved run was loaded into a browser in this stage.
+Both the saved-run GET and new-run POST now recursively remove local path fields and reference-image variation paths before returning data to the browser. A unit test covers path redaction while retaining reviewable data. Local web unit tests (31), TypeScript, production build, Playwright discovery (12), and `git diff --check` pass. Hosted push run [41209272113](https://github.com/Ameerzan1984/CineCrew/actions/runs/41209272113) and PR run [41209276390](https://github.com/Ameerzan1984/CineCrew/actions/runs/41209276390) passed the full workflow including PostgreSQL continuation, Film Engine checks and desktop/mobile E2E. No live ChatGPT/LLM/Higgsfield call or paid generation was made; no actual saved run was loaded in the browser during CI.
