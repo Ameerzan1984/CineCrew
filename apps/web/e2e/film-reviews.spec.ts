@@ -59,7 +59,7 @@ test("a published film review persists and can be edited or removed on desktop a
     expect(published.status).toBe(200);
 
     async function openFilm() {
-      const card = page.locator(".film-card").filter({ hasText: title });
+      const card = page.locator(".discover-film-card").filter({ hasText: title });
       await expect(card).toBeVisible();
       await card.getByRole("button", { name: "Film details" }).click();
       await expect(page.getByRole("heading", { name: "Ratings & reviews" })).toBeVisible();
