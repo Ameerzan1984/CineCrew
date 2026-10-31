@@ -33,6 +33,10 @@ Migration 017 stores user-owned public/private collections and ordered film memb
 
 The private Film Engine already persists the completed CineCrew `asset_library` and `blueprint` in the run output. Film Studio now displays selected character, location, prop and FilmDSL data from that saved result. The Next.js story-editor GET and POST handlers redact local path fields before returning a run to the browser. Local checks and hosted push/PR runs [41209272113](https://github.com/Ameerzan1984/CineCrew/actions/runs/41209272113) and [41209276390](https://github.com/Ameerzan1984/CineCrew/actions/runs/41209276390) passed. This is a read-only snapshot: manual character CRUD is still a separate PostgreSQL representation, and a canonical editable Film Bible endpoint/synchronization remains open. Do not claim real model generation from unit/build coverage.
 
-## Persistent scene ordering (implementation; hosted CI pending)
+## Persistent scene ordering (implementation; hosted CI passed)
 
 Film Studio reads `scenes` ordered by the PostgreSQL `position` column. Owners can move a scene one slot up or down; the API locks the film and scene rows, swaps positions through an unused temporary integer inside one transaction to preserve the unique `(film_id, position)` constraint, and rejects boundary moves. Editors can contribute and edit their own shot content but cannot reorder the shared film timeline. Assembly already selects one saved clip per scene in this same order. Audio lanes, trims, transitions, subtitle timing, and background exports are not part of this first timeline slice.
+
+## Public filmmaker profiles
+
+Migration 018 stores a public bio (up to 500 characters) on each user. The authenticated profile PATCH handler allows only the account owner and checks the request origin; public GET responses expose the bio but not the email. Profile photos, privacy settings and private activity are not implemented by this slice.
