@@ -96,3 +96,10 @@ CineMesh شبكة اجتماعية واستوديو لإنتاج الأفلام 
 - Discover's published film cards now read real PostgreSQL like counts/current-user state and allow sign-in gated like/unlike plus read/post comments. The API serializes like updates against publish state; unpublishing hides comments and rejects new social writes. No replies, comment editing, moderation or reporting yet.
 - The hosted PostgreSQL workflow passed migrations and the auth/collaboration integration. It exposed stale test request shapes and then a missing `DELETE` export in the catch-all Next.js route. These were fixed locally; the latest 27 web unit tests, TypeScript check and production build pass. The updated publication/social integration tests and Playwright desktop/mobile persistence + RTL flow passed in GitHub Actions run 41192626181. The workflow masked ephemeral vault keys and service tokens.
 - The CI vault keys and internal engine token are ephemeral test-only values and are masked in workflow logs. No real provider secrets are present in the branch.
+
+
+## Public filmmaker profiles — 2026-10-31
+
+- Public profiles expose only a user's display name and follower/following counts plus the current viewer's follow state; they never expose email. Their portfolio queries published films only when a saved `film_render` exists, and plays via the public media route. A draft/unpublished film is not listed.
+- Discover and Community now link to profiles. Signed-in viewers can follow/unfollow; guests are prompted to sign in. Profile writes use the existing origin-checked Community follow endpoint.
+- The integration test now covers profile payload privacy, unknown UUID, published-only portfolio, follows, and unpublishing. Local build checks passed; this current profile change still needs its hosted PostgreSQL/Playwright run. Do not claim profile acceptance is complete until CI passes.

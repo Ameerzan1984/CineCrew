@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 type Person = { id: string; display_name: string; following: boolean; followers: number };
 type Invitation = { film_id: string; title: string; genre: string; role: "editor" | "viewer"; invited_by_name: string };
 
-export default function Community({ ar, onFilmListChange }: { ar: boolean; onFilmListChange: () => Promise<void> }) {
+export default function Community({ ar, onFilmListChange, onProfile }: { ar: boolean; onFilmListChange: () => Promise<void>; onProfile: (userId: string) => void }) {
   const [users, setUsers] = useState<Person[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [query, setQuery] = useState("");
@@ -64,7 +64,7 @@ export default function Community({ ar, onFilmListChange }: { ar: boolean; onFil
     </form>
     {notice && <p role="status">{notice}</p>}
     {users.length ? <div className="community-list">{users.map(person => <div className="settings-card member" key={person.id}>
-      <div><strong>{person.display_name}</strong><p>{person.followers} {ar ? "متابعون" : "followers"}</p></div>
+      <div><strong>{person.display_name}</strong><p>{person.followers} {ar ? "متابعون" : "followers"}</p><button type="button" className="text-button" onClick={() => onProfile(person.id)}>{ar ? "\u0639\u0631\u0636 \u0627\u0644\u0645\u0644\u0641" : "View profile"}</button></div>
       <button className="outline-button" disabled={busy} onClick={() => toggle(person)}>{person.following ? (ar ? "إلغاء المتابعة" : "Unfollow") : (ar ? "متابعة" : "Follow")}</button>
     </div>)}</div> : <div className="empty"><p>{ar ? "لم يتم العثور على صناع أفلام." : "No members found."}</p></div>}
   </>;

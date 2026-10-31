@@ -97,6 +97,17 @@ async function main() {
       const discovery = await request("discover");
       assert.equal(discovery.status, 200);
       assert.equal(discovery.body.films.find(item => item.id === filmId).media_asset_id, renderId);
+      assert.equal(discovery.body.films.find(item => item.id === filmId).owner_id, owner.body.id);
+      const publicProfile = await request(`profiles/${owner.body.id}`);
+      assert.equal(publicProfile.status, 200); assert.equal(publicProfile.body.profile.display_name, "First contributor");
+      assert.equal("email" in publicProfile.body.profile, false, "Public profiles never expose account email");
+      assert.equal(publicProfile.body.films[0].id, filmId, "Profiles list only published saved films");
+      assert.equal((await request(`profiles/${randomUUID()}`)).status, 404);
+      assert.equal((await request("community", "POST", { action: "follow", userId: owner.body.id })).status, 401, "Following requires a signed-in user");
+      const profileFollow = await request("community", "POST", { action: "follow", userId: owner.body.id }, member.cookie);
+      assert.equal(profileFollow.status, 200);
+      const followedProfile = await request(`profiles/${owner.body.id}`, "GET", undefined, member.cookie);
+      assert.equal(followedProfile.body.profile.following, true); assert.equal(followedProfile.body.profile.followers, 1);
       const publicMedia = await fetch(`${base}/api/media/${renderId}`);
       assert.equal(publicMedia.status, 200, "Published film renders may be streamed without a CineMesh account");
       assert.equal(Buffer.from(await publicMedia.arrayBuffer()).toString(), fixture.toString());
@@ -121,6 +132,8 @@ async function main() {
       assert.equal((await fetch(`${base}/api/media/${renderId}`)).status, 404, "Unpublishing removes public render access");
       assert.equal((await request(`films/${filmId}/comments`)).body.comments.length, 0, "Unpublished films no longer expose comments");
       assert.equal((await request(`films/${filmId}/likes`, "POST", {}, owner.cookie)).status, 404, "Unpublished films no longer accept likes");
+      assert.equal((await request(`profiles/${owner.body.id}`)).body.films.length, 0, "Unpublished films leave the public portfolio");
+      assert.equal((await request("community", "POST", { action: "unfollow", userId: owner.body.id }, member.cookie)).status, 200);
     } finally {
       fs.rmSync(mediaPath, { force: true });
     }

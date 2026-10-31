@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 
 type PublishedFilm = {
   id: string;
+  owner_id: string;
   title: string;
   premise: string;
   genre: string;
@@ -21,7 +22,7 @@ type PublishedFilm = {
 
 type FilmComment = { id: string; body: string; created_at: string; author_display_name: string };
 
-export default function Discover({ ar, onSignIn }: { ar: boolean; onSignIn: () => void }) {
+export default function Discover({ ar, onSignIn, onOpenProfile }: { ar: boolean; onSignIn: () => void; onOpenProfile: (userId: string) => void }) {
   const [films, setFilms] = useState<PublishedFilm[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -127,7 +128,7 @@ export default function Discover({ ar, onSignIn }: { ar: boolean; onSignIn: () =
           <div className="discover-film-meta">
             <span>{film.genre}</span><span>{film.duration_minutes} {ar ? "\u062f\u0642\u064a\u0642\u0629" : "min"}</span>
           </div>
-          <small>{ar ? "\u0625\u062e\u0631\u0627\u062c" : "By"} {film.owner_display_name}</small>
+          <button type="button" className="discover-author" onClick={() => onOpenProfile(film.owner_id)}>{ar ? "\u0625\u062e\u0631\u0627\u062c" : "By"} {film.owner_display_name}</button>
           <div className="discover-social-actions">
             <button type="button" aria-pressed={film.liked_by_me} disabled={busyFilms[film.id]} onClick={() => void toggleLike(film)}>
               {film.liked_by_me ? "♥" : "♡"} {film.likes_count} {ar ? "\u0625\u0639\u062c\u0627\u0628" : "Like"}

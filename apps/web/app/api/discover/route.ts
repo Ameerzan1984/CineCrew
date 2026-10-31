@@ -12,7 +12,7 @@ export async function GET() {
   try {
     const user = await currentUser();
     const result = await database().query(
-      `SELECT f.id,f.title,f.premise,f.genre,f.duration_minutes,f.language,f.updated_at AS published_at,
+      `SELECT f.id,f.owner_id,f.title,f.premise,f.genre,f.duration_minutes,f.language,f.updated_at AS published_at,
               owner.display_name AS owner_display_name,
               render.id AS media_asset_id,render.size_bytes AS media_size_bytes,
               (SELECT count(*)::integer FROM film_likes l WHERE l.film_id=f.id) AS likes_count,
