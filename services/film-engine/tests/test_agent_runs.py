@@ -162,7 +162,15 @@ def test_postgres_checkpoint_survives_service_restart_and_serializes_advances(mo
         monkeypatch.delenv("CINEMESH_ENGINE_DATABASE_URL", raising=False)
         monkeypatch.setenv("CINEMESH_ENGINE_DB", str(sqlite_path))
         storage.init_db()
-        film = storage.create_film({"title": "PostgreSQL recovery", "premise": "A projectionist finds a lost reel."})
+        film = storage.create_film({
+            "title": "PostgreSQL recovery",
+            "premise": "A projectionist finds a lost reel.",
+            "genre": "Mystery",
+            "duration_minutes": 5,
+            "language": "en",
+            "visual_style": "Cinematic",
+            "mode": "automatic",
+        })
         run_id = str(uuid.uuid4())
         film_idea = "A projectionist finds a lost reel that predicts tomorrow."
         assert storage.claim_story_editor_run(film["id"], run_id, film_idea)["state"] == "started"
