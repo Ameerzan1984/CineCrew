@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 type Stage = { stage: string; agent: string; status: string; error_code: string | null };
+type SavedRun = { id: string; model: string; status: string; stage: string; error_code: string | null; created_at: string; updated_at: string; created_by_name: string; can_resume: boolean };
 type Run = {
   id: string;
   status: string;
@@ -34,6 +35,11 @@ async function request(path: string, init?: RequestInit) {
   return data;
 }
 
+async function savedAgentRuns(filmId: string): Promise<SavedRun[]> {
+  const result = await request(`/api/films/${filmId}/agents/story-editor/runs`);
+  return Array.isArray(result.runs) ? result.runs : [];
+}
+
 export default function CineCrewAgentRun({
   filmId,
   ar,
@@ -58,28 +64,30 @@ export default function CineCrewAgentRun({
   const [models, setModels] = useState<Array<{ id: string; name: string }>>([]);
   const [model, setModel] = useState("");
   const [connected, setConnected] = useState<boolean | null>(null);
-  const runKey = `cinemesh:agent-run:${filmId}`;
+  const [savedRuns, setSavedRuns] = useState<SavedRun[]>([]);
 
   useEffect(() => {
     request("/api/connections/chatgpt")
       .then((value) => setConnected(!!value.connected && !!value.account?.planUsageEnabled))
       .catch(() => setConnected(false));
 
-    const saved = window.sessionStorage.getItem(runKey);
-    if (!saved) return;
-    setRunId(saved);
-    request(`/api/films/${filmId}/agents/story-editor?run_id=${encodeURIComponent(saved)}`)
-      .then((value) => {
+    savedAgentRuns(filmId).then(async (runs) => {
+      setSavedRuns(runs);
+      const resume = runs.find((item) => item.can_resume && (item.status === "running" || item.status === "failed"))
+        ?? runs.find((item) => item.can_resume) ?? runs[0];
+      if (!resume) return;
+      if (resume.can_resume) setModel(resume.model);
+      try {
+        const value = await request(`/api/films/${filmId}/agents/story-editor?run_id=${encodeURIComponent(resume.id)}`);
         setRun(value);
         if (value.script_segment) setIdea((current) => current || value.script_segment);
-        if (value.status === "completed") {
-          setRunId("");
-          window.sessionStorage.removeItem(runKey);
-          onComplete();
-        }
-      })
-      .catch(() => {});
-  }, [filmId, runKey, onComplete]);
+        setRunId(resume.can_resume && (value.status === "running" || value.status === "failed") ? resume.id : "");
+      } catch (cause) {
+        setError((cause as Error).message);
+        setRunId(resume.id);
+      }
+    }).catch(() => {});
+  }, [filmId]);
 
   async function refreshModels() {
     setBusy(true);
@@ -103,26 +111,27 @@ export default function CineCrewAgentRun({
     event.preventDefault();
     setBusy(true);
     setError("");
-    const id = runId || crypto.randomUUID();
+    const id = runId && (run?.status === "running" || run?.status === "failed") ? runId : crypto.randomUUID();
     setRunId(id);
-    window.sessionStorage.setItem(runKey, id);
     try {
       const result = await request(`/api/films/${filmId}/agents/story-editor`, {
         method: "POST",
         body: JSON.stringify({ run_id: id, film_idea: idea, model }),
       });
       setRun(result);
-      setRunId("");
-      window.sessionStorage.removeItem(runKey);
+      setRunId(result.status === "running" || result.status === "failed" ? id : "");
+      try { setSavedRuns(await savedAgentRuns(filmId)); } catch { /* run index can be refreshed on the next load */ }
       onComplete();
     } catch (cause) {
       setError((cause as Error).message);
+      setRunId(id);
       try {
         const status = await request(`/api/films/${filmId}/agents/story-editor?run_id=${encodeURIComponent(id)}`);
         setRun(status);
       } catch {
-        // Keep the run ID so this browser session can resume after a service interruption.
+        // The run ID is registered in PostgreSQL before the engine call, so another device can restore it.
       }
+      try { setSavedRuns(await savedAgentRuns(filmId)); } catch { /* retain the current run view */ }
     } finally {
       setBusy(false);
     }
@@ -135,9 +144,9 @@ export default function CineCrewAgentRun({
     try {
       const result = await request(`/api/films/${filmId}/agents/story-editor?run_id=${encodeURIComponent(runId)}`);
       setRun(result);
+      setRunId(result.status === "running" || result.status === "failed" ? runId : "");
+      try { setSavedRuns(await savedAgentRuns(filmId)); } catch { /* current status is already displayed */ }
       if (result.status === "completed") {
-        setRunId("");
-        window.sessionStorage.removeItem(runKey);
         onComplete();
       }
     } catch (cause) {
@@ -162,11 +171,24 @@ export default function CineCrewAgentRun({
     finally { setBusy(false); }
   }
 
+  async function selectSavedRun(id: string) {
+    if (!id) { setRun(null); setRunId(""); return; }
+    setBusy(true); setError("");
+    try {
+      const result = await request(`/api/films/${filmId}/agents/story-editor?run_id=${encodeURIComponent(id)}`);
+      setRun(result);
+      if (result.script_segment) setIdea(result.script_segment);
+      const saved = savedRuns.find((item) => item.id === id);
+      if (saved?.can_resume) setModel(saved.model);
+      setRunId(saved?.can_resume && (result.status === "running" || result.status === "failed") ? id : "");
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+
   function updateIdea(value: string) {
     setIdea(value);
     setRun(null);
     setRunId("");
-    window.sessionStorage.removeItem(runKey);
   }
 
   const stages = run?.stages ?? [];
@@ -192,6 +214,14 @@ export default function CineCrewAgentRun({
       {connected === false && <p className="connection-note">{ar ? "افتح Connections ووافق على استخدام خطة ChatGPT." : "Open Connections and authorize CineMesh to use your ChatGPT plan."}</p>}
       {!canRunAgents && <p className="connection-note">{ar ? "صلاحية المشاهدة لا تسمح بتشغيل وكلاء الفيلم." : "Viewer access does not allow running film agents."}</p>}
 
+      {savedRuns.length > 0 && <label className="agent-run-history">
+        {ar ? "تشغيلات CineCrew المحفوظة لهذا الفيلم" : "Saved CineCrew runs for this film"}
+        <select aria-label={ar ? "التشغيلات المحفوظة" : "Saved agent runs"} value={run?.id || ""} disabled={busy} onChange={(event) => void selectSavedRun(event.target.value)}>
+          <option value="">{ar ? "اختر تشغيلًا محفوظًا" : "Choose a saved run"}</option>
+          {savedRuns.map((item) => <option key={item.id} value={item.id}>{item.status} · {item.created_by_name} · {item.stage} · {item.model} · {new Date(item.updated_at).toLocaleString()}</option>)}
+        </select>
+      </label>}
+
       <form className="agent-run-form" onSubmit={runAgent}>
         <label>
           {ar ? "فكرة الفيلم" : "Film idea"}
@@ -205,6 +235,7 @@ export default function CineCrewAgentRun({
         <div className="agent-run-controls">
           <select aria-label={ar ? "النموذج" : "Model"} value={model} onChange={(event) => setModel(event.target.value)} disabled={!linked || !canRunAgents}>
             <option value="">{ar ? "حمّل النماذج المتاحة" : "Load your available models"}</option>
+            {model && !models.some((item) => item.id === model) && <option value={model}>{ar ? `النموذج المحفوظ: ${model}` : `Saved model: ${model}`}</option>}
             {models.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
           <button type="button" className="outline-button" disabled={busy || !connected || !linked || !canRunAgents} onClick={refreshModels}>
@@ -256,8 +287,8 @@ export default function CineCrewAgentRun({
 
       <p className="connection-note">
         {ar
-          ? "يحفظ هذا المسار السيناريو وFilmDSL ومهام الفيديو فقط. نعرض خطة اللقطات والتكلفة ونطلب سقفًا قبل أي توليد مدفوع."
-          : "This run saves the screenplay, FilmDSL, and video job plan. We will show the shots and cost and ask for a spend ceiling before paid generation."}
+          ? "تُحفظ قائمة التشغيلات مع الفيلم ويمكن فتحها من جهاز آخر. تعتمد استعادة نقاط الحفظ الكاملة على استمرار قاعدة محرك الفيلم. التوليد المدفوع معطل حتى التحقق من تسعير Higgsfield."
+          : "Run history is stored with this film and can be restored on another device. Checkpoints still depend on the Film Engine database being available. Paid generation remains disabled until Higgsfield pricing is verified."}
       </p>
       {error && <p role="alert">{error}</p>}
     </section>

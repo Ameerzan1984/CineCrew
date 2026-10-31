@@ -100,3 +100,6 @@ Run `2673511` passed the earlier database, unit/type/build, provider, engine, sc
 The previous live-test steps remain open. Run CineMesh and its isolated PostgreSQL service in a permitted local/CI environment, set a dedicated CHATGPT_VAULT_KEY outside Git, and complete Sign in with ChatGPT in the user's browser. Verify the resulting grant, discover models, make one authorized Responses request, and run the idea-to-FilmDSL path. Record actual errors and resumability. Do not submit any Higgsfield generation until the provider's exact USD estimate contract is confirmed and the user approves the displayed job and cost.
 
 The full isolated PostgreSQL and desktop/mobile browser CI workflow passed on code commit 60f8390632aa1527d13a31133895828567645569 in GitHub Actions run 41195739882. It does not substitute for the still-unverified real ChatGPT consent/inference or provider tests.
+## Cross-device run index follow-up (2026-10-31)
+
+Run the hosted PostgreSQL integration against migration 011 and verify owner/editor/viewer access. Then validate with a real Film Engine deployment that its SQLite data volume survives an application restart and can be backed up/restored; the PostgreSQL run index alone is not the FilmDSL/checkpoint store. Multi-replica engine execution still needs a shared transactional checkpoint database or an equivalent durable service.

@@ -44,8 +44,27 @@ async function main() {
     const matchingDatabase = await pool.query("SELECT owner_id FROM films WHERE id=$1", [filmId]);
     assert.equal(matchingDatabase.rows[0]?.owner_id, owner.body.id, "The disposable PostgreSQL database must be the same database used by the test app");
 
+    const engineLink = await request(`films/${filmId}/engine/connect`, "POST", {}, owner.cookie);
+    assert.equal(engineLink.status, 200, "The owner links the film to the private engine before listing agent runs");
+    const savedRunId = randomUUID();
+    await pool.query(`INSERT INTO film_agent_runs(run_id,film_id,created_by,model,status,stage)
+      VALUES($1,$2,$3,'test-model','running','cinematographer')`, [savedRunId,filmId,owner.body.id]);
+    const ownerRunHistory = await request(`films/${filmId}/agents/story-editor/runs`, "GET", undefined, owner.cookie);
+    assert.equal(ownerRunHistory.status, 200);
+    assert.equal(ownerRunHistory.body.runs[0].id, savedRunId, "Run IDs are discoverable from PostgreSQL without browser storage");
+    assert.equal(ownerRunHistory.body.runs[0].can_resume, true, "Only the contributor who supplied this run's model credentials may resume it");
+    assert.equal("access_token" in ownerRunHistory.body.runs[0], false, "Run history never exposes provider credentials");
+    assert.equal((await request(`films/${filmId}/agents/story-editor/runs`, "GET", undefined, member.cookie)).status, 404,
+      "A pending invite cannot discover film agent runs");
+    assert.equal((await request(`films/${filmId}/agents/story-editor?run_id=${savedRunId}`, "GET", undefined, owner.cookie)).status, 410,
+      "The gateway reports a missing engine checkpoint instead of pretending a PostgreSQL index is the saved output");
+
     assert.equal((await request(`films/${filmId}/collaborators`, "POST", { action: "invite", email: memberEmail, role: "editor" }, owner.cookie)).status, 201);
     assert.equal((await request("collaboration/invitations", "POST", { filmId, action: "accept" }, member.cookie)).status, 200);
+    const editorRunHistory = await request(`films/${filmId}/agents/story-editor/runs`, "GET", undefined, member.cookie);
+    assert.equal(editorRunHistory.status, 200);
+    assert.equal(editorRunHistory.body.runs[0].id, savedRunId, "Accepted editors can restore shared film run history");
+    assert.equal(editorRunHistory.body.runs[0].can_resume, false, "A collaborator must not be able to resume another contributor's provider job with their credential");
     const first = await request(`films/${filmId}/production`, "POST", { action: "create_scene", position: 1, title: "First shot", description: "A traveler opens the door." }, owner.cookie);
     assert.equal(first.status, 201);
     const firstSceneId = first.body.scenes.find(scene => scene.position === 1).id;

@@ -4,7 +4,7 @@ The `cinemesh` branch contains PostgreSQL-backed sessions and film records, edit
 
 ## Remaining work, in order
 
-1. Start a disposable PostgreSQL instance and run migration, registration, session, film persistence, access-control and two-user tests through the real web app. Verify save and resume across sessions and device-sized browser clients.
+1. The PostgreSQL agent-run registry now makes saved run IDs discoverable across browsers and records which contributor may resume each run. Full stage outputs still live in the Film Engine SQLite database. Verify that database is durably mounted and recoverable across service restarts; it is not yet a multi-replica store. Hosted disposable PostgreSQL integration verifies run-index access and collaborator isolation.
 2. Connect the CineCrew generative pipeline—not just `ProductionOperator`—to the film studio: idea/script, Film Bible and asset references, story edit, cinematography, validation, technical direction, review, job planning, checkpoints and resumability. The web app must call a configured language-model provider; the local API test did not call an LLM.
 3. Connect saved contributor API credentials and real generation jobs to a reliable worker. Enforce that a contributor can spend only their own provider balance on shots they claim. Persist job state, handle timeouts without blind retries, record consent and reconcile the provider invoice.
 4. Keep MCP OAuth as a separate optional path. Live tool discovery worked, but the tested account's MCP generation failed with `Requires plus plan or higher`. Re-test only with an eligible account; support real model/schema discovery, cost preflight, execution, polling and cancellation. Keep MCP plan credits separate from API USD balance.
