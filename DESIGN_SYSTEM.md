@@ -7,3 +7,5 @@ Film review controls use five keyboard-operable star buttons with explicit ratin
 Film lists use the same dark settings-card surfaces and purple focus/accent treatment. Public/private state and item counts must be visible in the list card; create/edit controls remain labeled, and film titles stay actionable without turning owner-only delete/remove controls into public actions. Keep the two-column layout stacked on narrow screens and preserve logical reading order in RTL.
 
 The generated Film Bible review uses compact character cards with stable asset IDs, readable metadata labels and collapsible long-form details. Avoid rendering machine-local image/audio paths; future visual references should be served through authorized media URLs or asset IDs.
+
+The first Timeline control uses an ordered list of scene cards with a stable sequence number, title, duration when available, and owner-only move buttons. Keep move controls keyboard-operable, provide an accessible scene-specific label, visibly disable boundary moves, and stack the card layout on narrow screens without changing the scene order.

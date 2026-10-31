@@ -150,6 +150,21 @@ async function main() {
     assert.equal(continuation.status, 409);
     assert.match(continuation.body.error, /expired/i, "The first shot must be recognized as earlier before its expired URL is rejected");
 
+    const reorderedUp = await request(`films/${filmId}/production`, "POST", { action: "move_scene", id: secondSceneId, direction: "up" }, owner.cookie);
+    assert.equal(reorderedUp.status, 200);
+    assert.deepEqual(reorderedUp.body.scenes.slice(0,2).map(scene => scene.title), ["Second shot", "First shot"]);
+    const persistedOrder = await request(`films/${filmId}/production`, "GET", undefined, owner.cookie);
+    assert.deepEqual(persistedOrder.body.scenes.slice(0,2).map(scene => scene.id), [secondSceneId, firstSceneId], "Timeline order persists when reloaded from PostgreSQL");
+    const movedDown = await request(`films/${filmId}/production`, "POST", { action: "move_scene", id: secondSceneId, direction: "down" }, owner.cookie);
+    assert.equal(movedDown.status, 200);
+    assert.deepEqual(movedDown.body.scenes.slice(0,2).map(scene => scene.title), ["First shot", "Second shot"]);
+    const restoredOrder = await request(`films/${filmId}/production`, "POST", { action: "move_scene", id: secondSceneId, direction: "up" }, owner.cookie);
+    assert.equal(restoredOrder.status, 200);
+    assert.equal((await request(`films/${filmId}/production`, "POST", { action: "move_scene", id: secondSceneId, direction: "up" }, owner.cookie)).status, 409, "A shot at the first position cannot move above the timeline");
+    assert.equal((await request(`films/${filmId}/production`, "POST", { action: "move_scene", id: secondSceneId, direction: "down" }, member.cookie)).status, 403, "A shot contributor cannot reorder the shared timeline");
+    const finalOrder = await request(`films/${filmId}/production`, "GET", undefined, owner.cookie);
+    assert.deepEqual(finalOrder.body.scenes.slice(0,2).map(scene => scene.id), [secondSceneId, firstSceneId]);
+
     const agentRunId = randomUUID();
     const agentFirst = randomUUID(), agentSecond = randomUUID();
     await pool.query(`INSERT INTO scenes(id,film_id,position,title,description,created_by,agent_run_id,agent_shot_id)

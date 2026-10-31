@@ -71,10 +71,12 @@ export async function POST(request: NextRequest, context: Context) {
     const data = JSON.parse(raw);
     if (!data || typeof data !== "object" || Array.isArray(data) || typeof data.action !== "string") return json({ error: "Invalid request" }, 400);
     const action = data.action as string;
-    const actions = ["create_scene", "update_scene", "delete_scene", "claim_scene", "create_character", "update_character", "delete_character"];
+    const actions = ["create_scene", "update_scene", "delete_scene", "claim_scene", "move_scene", "create_character", "update_character", "delete_character"];
     if (!actions.includes(action)) return json({ error: "Unknown action" }, 400);
     if (!action.startsWith("create_") && (typeof data.id !== "string" || !uuid.test(data.id))) return json({ error: "Invalid item ID" }, 400);
-    if (action.endsWith("scene") && !action.startsWith("delete_") && action !== "claim_scene" && (!Number.isInteger(data.position) || data.position < 0 || data.position > 100000 || !validText(data.title, 160, true) || !validText(data.description, 4000))) return json({ error: "Invalid scene fields" }, 400);
+    if (action === "create_scene" && (!Number.isInteger(data.position) || data.position < 0 || data.position > 100000 || !validText(data.title, 160, true) || !validText(data.description, 4000))) return json({ error: "Invalid scene fields" }, 400);
+    if (action === "update_scene" && (!validText(data.title, 160, true) || !validText(data.description, 4000) || (data.position !== undefined && (!Number.isInteger(data.position) || data.position < 0 || data.position > 100000)))) return json({ error: "Invalid scene fields" }, 400);
+    if (action === "move_scene" && data.direction !== "up" && data.direction !== "down") return json({ error: "Invalid scene direction" }, 400);
     if (action.endsWith("character") && !action.startsWith("delete_") && (!validText(data.name, 160, true) || !validText(data.description, 4000) || !(data.asset_id === null || data.asset_id === undefined || validText(data.asset_id, 160, true)))) return json({ error: "Invalid character fields" }, 400);
     const client = await database().connect();
     try {
@@ -88,13 +90,34 @@ export async function POST(request: NextRequest, context: Context) {
       const isOwner = film.rows[0].owner_id === user.id;
       const isEditor = isOwner || film.rows[0].role === "editor";
       if (!isEditor) { await client.query("ROLLBACK"); return json({ error: "Editor access required" }, 403); }
+      if (action === "move_scene" && !isOwner) { await client.query("ROLLBACK"); return json({ error: "Only the film owner can reorder scenes" }, 403); }
       if (!isOwner && action.endsWith("character")) { await client.query("ROLLBACK"); return json({ error: "Only the film owner can edit characters" }, 403); }
       let changed;
       if (action === "claim_scene") changed = await client.query("UPDATE scenes SET created_by=$1 WHERE id=$2 AND film_id=$3 AND agent_run_id IS NOT NULL AND created_by IS NULL", [user.id,data.id,filmId]);
       else if (action === "create_scene") changed = await client.query("INSERT INTO scenes(id,film_id,position,title,description,created_by) VALUES($1,$2,$3,$4,$5,$6)", [randomUUID(), filmId, data.position, data.title.trim(), data.description, user.id]);
-      else if (action === "update_scene") changed = isOwner
-        ? await client.query("UPDATE scenes SET position=$1,title=$2,description=$3 WHERE id=$4 AND film_id=$5", [data.position, data.title.trim(), data.description, data.id, filmId])
-        : await client.query("UPDATE scenes SET position=$1,title=$2,description=$3 WHERE id=$4 AND film_id=$5 AND created_by=$6", [data.position, data.title.trim(), data.description, data.id, filmId, user.id]);
+      else if (action === "move_scene") {
+        const ordered = await client.query("SELECT id,position FROM scenes WHERE film_id=$1 ORDER BY position,id FOR UPDATE", [filmId]);
+        const index = ordered.rows.findIndex(scene => scene.id === data.id);
+        if (index < 0) { await client.query("ROLLBACK"); return json({ error: "Scene not found" }, 404); }
+        const neighborIndex = index + (data.direction === "up" ? -1 : 1);
+        if (neighborIndex < 0 || neighborIndex >= ordered.rows.length) { await client.query("ROLLBACK"); return json({ error: "Scene is already at that end of the timeline" }, 409); }
+        const scene = ordered.rows[index];
+        const neighbor = ordered.rows[neighborIndex];
+        const occupied = new Set(ordered.rows.map(row => Number(row.position)));
+        let temporaryPosition = 2_147_483_647;
+        while (occupied.has(temporaryPosition) && temporaryPosition > -2_147_483_648) temporaryPosition -= 1;
+        if (occupied.has(temporaryPosition)) { await client.query("ROLLBACK"); return json({ error: "No temporary scene position is available" }, 409); }
+        await client.query("UPDATE scenes SET position=$1 WHERE film_id=$2 AND id=$3", [temporaryPosition, filmId, scene.id]);
+        await client.query("UPDATE scenes SET position=$1 WHERE film_id=$2 AND id=$3", [scene.position, filmId, neighbor.id]);
+        changed = await client.query("UPDATE scenes SET position=$1 WHERE film_id=$2 AND id=$3", [neighbor.position, filmId, scene.id]);
+      }
+      else if (action === "update_scene") changed = data.position === undefined
+        ? isOwner
+          ? await client.query("UPDATE scenes SET title=$1,description=$2 WHERE id=$3 AND film_id=$4", [data.title.trim(), data.description, data.id, filmId])
+          : await client.query("UPDATE scenes SET title=$1,description=$2 WHERE id=$3 AND film_id=$4 AND created_by=$5", [data.title.trim(), data.description, data.id, filmId, user.id])
+        : isOwner
+          ? await client.query("UPDATE scenes SET position=$1,title=$2,description=$3 WHERE id=$4 AND film_id=$5", [data.position, data.title.trim(), data.description, data.id, filmId])
+          : await client.query("UPDATE scenes SET position=$1,title=$2,description=$3 WHERE id=$4 AND film_id=$5 AND created_by=$6", [data.position, data.title.trim(), data.description, data.id, filmId, user.id]);
       else if (action === "delete_scene") changed = isOwner
         ? await client.query("DELETE FROM scenes WHERE id=$1 AND film_id=$2", [data.id, filmId])
         : await client.query("DELETE FROM scenes WHERE id=$1 AND film_id=$2 AND created_by=$3", [data.id, filmId, user.id]);

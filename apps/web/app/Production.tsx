@@ -163,6 +163,15 @@ export default function Production({ filmId, ar, status, onPublicationChange }: 
     finally { setBusy(false); }
   }
 
+  async function moveScene(id: string, direction: "up" | "down") {
+    setBusy(true); setNotice("");
+    try {
+      setData(await request(`/api/films/${filmId}/production`, "POST", { action: "move_scene", id, direction }));
+      setNotice(ar ? "تم حفظ ترتيب المشاهد." : "Scene order saved.");
+    } catch (e) { setNotice((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
   async function invite(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -205,7 +214,7 @@ export default function Production({ filmId, ar, status, onPublicationChange }: 
     if (scene?.claimable) return <article className="production-form" key={scene.id}><strong>{scene.position}. {scene.title}</strong><p>{scene.description}</p><small>{ar ? "لقطة خططها وكيل CineCrew ولم يخترها مساهم بعد." : "Planned by CineCrew; waiting for a contributor."}</small>{canEdit && <button type="button" className="outline-button" disabled={busy} onClick={() => mutate("claim_scene",scene.id)}>{ar ? "اختر هذه اللقطة لمساهمتي" : "Claim this shot"}</button>}</article>;
     if (scene && !editable) return <article className="production-form" key={scene.id}><strong>{scene.position}. {scene.title}</strong><p>{scene.description}</p><small>{ar ? "مساهمة:" : "Contribution by:"} {scene.creator_name || (ar ? "مالك الفيلم" : "Film owner")}</small>{generationPanel(scene)}</article>;
     return <div className="shot-block" key={scene?.id || "new-scene"}><form className="connection-form production-form" onSubmit={e => submit(e, scene ? "update_scene" : "create_scene", scene?.id)}>
-      <label>{ar ? "الترتيب" : "Position"}<input type="number" name="position" required min="1" defaultValue={scene?.position ?? (Math.max(0, ...data.scenes.map(x => x.position)) + 1)} /></label>
+      {!scene && <input type="hidden" name="position" value={Math.max(0, ...data.scenes.map(x => x.position)) + 1} />}
       <label>{ar ? "عنوان اللقطة" : "Shot title"}<input name="title" required maxLength={160} defaultValue={scene?.title} /></label>
       <label>{ar ? "وصف اللقطة" : "Shot description"}<textarea name="description" maxLength={4000} defaultValue={scene?.description} /></label>
       {scene && <small>{ar ? "مساهمة:" : "Contribution by:"} {scene.creator_name || (ar ? "مالك الفيلم" : "Film owner")}</small>}
@@ -259,6 +268,23 @@ export default function Production({ filmId, ar, status, onPublicationChange }: 
       {data.invitations.map(person => <p key={person.user_id}>{person.display_name} · {ar ? "بانتظار القبول" : "Invitation pending"}</p>)}
     </div>}
     {!isOwner && <div className="settings-card"><h3>{ar ? "مساهمة جماعية" : "Team production"}</h3><p>{ar ? "أضف وصف لقطتك، ثم ولّدها بمفتاحك. تُخصم تكلفة التوليد من رصيد API الشخصي ولا تستخدم رصيد MCP." : "Add your shot description, then generate it with your own API key. A live request is charged to your personal Higgsfield API balance; it does not use MCP credits."}</p><span className="pill">{data.role}</span></div>}
+    <div className="settings-card">
+      <h3>{ar ? "Timeline · ترتيب المشاهد" : "Timeline · Scene order"}</h3>
+      <p>{ar ? "يرتب هذا التسلسل المشاهد المستخدمة لاحقًا عند تجميع الفيلم. يستطيع المالك فقط تغيير ترتيب الفيلم كله." : "This sequence controls scene order during film assembly. Only the film owner can reorder the shared timeline."}</p>
+      {data.scenes.length ? <ol className="timeline-order" aria-label={ar ? "ترتيب المشاهد" : "Scene order"}>
+        {data.scenes.map((scene, index) => {
+          const plannedDuration = scene.agent_planned_duration_seconds;
+          return <li key={scene.id}>
+            <span className="timeline-index" aria-label={`${ar ? "المشهد" : "Scene"} ${index + 1}`}>{String(index + 1).padStart(2, "0")}</span>
+            <span className="timeline-copy"><strong>{scene.title}</strong><small>{plannedDuration ? `${plannedDuration}s` : (ar ? "المدة غير محددة" : "Duration not set")}</small></span>
+            {isOwner && <span className="timeline-controls">
+              <button type="button" className="outline-button" aria-label={ar ? `نقل ${scene.title} للأعلى` : `Move ${scene.title} up`} disabled={busy || index === 0} onClick={() => moveScene(scene.id, "up")}>↑</button>
+              <button type="button" className="outline-button" aria-label={ar ? `نقل ${scene.title} للأسفل` : `Move ${scene.title} down`} disabled={busy || index === data.scenes.length - 1} onClick={() => moveScene(scene.id, "down")}>↓</button>
+            </span>}
+          </li>;
+        })}
+      </ol> : <p>{ar ? "أضف أول لقطة ليظهر تسلسل الفيلم." : "Add the first shot to start the film timeline."}</p>}
+    </div>
     <div className="settings-card"><h3>{ar ? "اللقطات" : "Shot contributions"}</h3><p>{ar ? "يضيف كل مساهم وصف لقطته ويولدها بحساب API الخاص به. بعد اكتمال اللقطة، احفظها على خادم CineMesh ثم اجمع اللقطات المحفوظة حسب ترتيب المشاهد." : "Each contributor creates a shot with their own Higgsfield API account. Save completed clips to this CineMesh server, then assemble them in scene order. API dollars and MCP plan credits are separate."}</p>{data.scenes.map(sceneForm)}{canEdit && sceneForm()}</div>
     <div className="settings-card"><h3>{ar ? "الشخصيات" : "Characters"}</h3><p>{ar ? "يستطيع مالك الفيلم تعديل الشخصيات فقط في هذا الإصدار." : "Only the film owner can edit characters in this version."}</p>{isOwner ? <>{data.characters.map(characterForm)}{characterForm()}</> : data.characters.map(person => <article className="production-form" key={person.id}><strong>{person.name}</strong><p>{person.description}</p></article>)}</div>
     {notice && <p role="alert">{notice}</p>}

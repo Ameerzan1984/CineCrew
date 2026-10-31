@@ -207,3 +207,11 @@ Completed agent runs now display their persisted character/personality/relations
 **Local results:** 31/31 web unit tests passed; `npm run lint`, `npm run build`, Playwright discovery (12 desktop/mobile cases), `git diff --check`, and continuation-script syntax check passed.
 
 **Hosted results:** Push run [41209272113](https://github.com/Ameerzan1984/CineCrew/actions/runs/41209272113) and PR run [41209276390](https://github.com/Ameerzan1984/CineCrew/actions/runs/41209276390) passed PostgreSQL continuation, Film Engine checks, and desktop/mobile E2E. The browser workflow did not authorize ChatGPT or load a real saved model run. No real LLM or paid provider request was submitted.
+
+## 2026-10-31 — Persistent Film Studio scene ordering
+
+**Change:** Added an owner-only `move_scene` action to the authenticated production API. It serializes against film mutations, locks the ordered scenes, swaps adjacent positions through a free temporary integer to satisfy the existing unique `(film_id, position)` constraint, and commits the move atomically. The Film Studio adds an Arabic/English responsive Timeline list, disables moves at the ends, and removes manual position editing from contribution forms. Editors can still edit their own shot text but cannot reorder the global timeline. FFmpeg assembly already follows scene position.
+
+**Coverage added:** The PostgreSQL continuation scenario tests up, down, persisted order, boundary rejection and editor permission denial. Desktop/mobile Playwright creates two owned shots, moves one, reloads, and checks persisted order.
+
+**Local results:** `npm run test:unit` passed 31/31; `npm run lint` and `npm run build` passed; integration and E2E files passed `node --check`; Playwright discovers 12 desktop/mobile cases; `git diff --check` passed. The new DB-backed continuation and browser flows did not run locally because this Windows environment has no PostgreSQL service or app process. Hosted CI has not run yet. No live ChatGPT/LLM/Higgsfield request or paid generation was made.
