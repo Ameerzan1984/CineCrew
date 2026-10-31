@@ -33,6 +33,7 @@ async function main() {
     const member = await request("auth/register", "POST", { name: "Second contributor", email: memberEmail, password });
     assert.equal(owner.status, 201); assert.ok(owner.cookie);
     assert.equal(member.status, 201); assert.ok(member.cookie);
+    assert.equal((await request("notifications")).status, 401, "Notification access requires a CineMesh account");
 
     const film = await request("films", "POST", { title: "Continuation test", premise: "Two contributors create consecutive shots.", genre: "Drama", duration_minutes: 1, mode: "collaborative" }, owner.cookie);
     assert.equal(film.status, 201);
@@ -59,8 +60,38 @@ async function main() {
     assert.equal((await request(`films/${filmId}/agents/story-editor?run_id=${savedRunId}`, "GET", undefined, owner.cookie)).status, 410,
       "The gateway reports a missing engine checkpoint instead of pretending a PostgreSQL index is the saved output");
 
+    assert.equal((await request("notifications", "GET", undefined, member.cookie)).body.notifications.length, 0);
     assert.equal((await request(`films/${filmId}/collaborators`, "POST", { action: "invite", email: memberEmail, role: "editor" }, owner.cookie)).status, 201);
+    const memberInviteInbox = await request("notifications", "GET", undefined, member.cookie);
+    assert.equal(memberInviteInbox.status, 200);
+    assert.equal(memberInviteInbox.body.notifications.length, 1, "A new film invitation creates one recipient notification");
+    const inviteNotification = memberInviteInbox.body.notifications[0];
+    assert.equal(inviteNotification.notification_type, "film_invitation");
+    assert.equal(inviteNotification.film_id, filmId);
+    assert.equal(inviteNotification.actor_display_name, "First contributor");
+    assert.equal(inviteNotification.read_at, null);
+    assert.equal(memberInviteInbox.body.unread_count, 1);
+    assert.equal((await request("notifications", "GET", undefined, owner.cookie)).body.notifications.length, 0,
+      "The inviter cannot read the invitee's private notification");
+    assert.equal((await request("notifications", "POST", { action: "read", notificationId: inviteNotification.id }, owner.cookie)).status, 404,
+      "A user cannot mark another account's notification as read");
+    assert.equal((await request(`films/${filmId}/collaborators`, "POST", { action: "invite", email: memberEmail, role: "editor" }, owner.cookie)).status, 201);
+    assert.equal((await request("notifications", "GET", undefined, member.cookie)).body.notifications.length, 1,
+      "Retrying an already-pending invitation does not create notification spam");
+    const markInviteRead = await request("notifications", "POST", { action: "read", notificationId: inviteNotification.id }, member.cookie);
+    assert.equal(markInviteRead.status, 200); assert.equal(markInviteRead.body.read, true); assert.equal(markInviteRead.body.unread_count, 0);
+    const repeatedMarkRead = await request("notifications", "POST", { action: "read", notificationId: inviteNotification.id }, member.cookie);
+    assert.equal(repeatedMarkRead.status, 200);
+    assert.equal(repeatedMarkRead.body.read_at, markInviteRead.body.read_at, "Mark-read is idempotent");
+    assert.equal((await request("notifications", "GET", undefined, member.cookie)).body.notifications[0].read_at, markInviteRead.body.read_at);
     assert.equal((await request("collaboration/invitations", "POST", { filmId, action: "accept" }, member.cookie)).status, 200);
+    const ownerAcceptanceInbox = await request("notifications", "GET", undefined, owner.cookie);
+    assert.equal(ownerAcceptanceInbox.body.notifications.length, 1, "Accepting an invite creates a notification for its inviter");
+    assert.equal(ownerAcceptanceInbox.body.notifications[0].notification_type, "invitation_accepted");
+    assert.equal(ownerAcceptanceInbox.body.notifications[0].actor_display_name, "Second contributor");
+    assert.equal((await request("collaboration/invitations", "POST", { filmId, action: "accept" }, member.cookie)).status, 404);
+    assert.equal((await request("notifications", "GET", undefined, owner.cookie)).body.notifications.length, 1,
+      "Retrying an already-accepted invitation does not duplicate the response notification");
     const editorRunHistory = await request(`films/${filmId}/agents/story-editor/runs`, "GET", undefined, member.cookie);
     assert.equal(editorRunHistory.status, 200);
     assert.equal(editorRunHistory.body.runs[0].id, savedRunId, "Accepted editors can restore shared film run history");
@@ -165,6 +196,18 @@ async function main() {
       assert.equal((await request(`profiles/${owner.body.id}`)).body.films.length, 0, "Unpublished films leave the public portfolio");
       assert.equal((await request(`watch/${filmId}`)).status, 404, "Unpublished films are not publicly watchable");
       assert.equal((await request("community", "POST", { action: "unfollow", userId: owner.body.id }, member.cookie)).status, 200);
+      assert.equal((await request(`films/${filmId}/collaborators`, "POST", { action: "remove", userId: member.body.id }, owner.cookie)).status, 200);
+      assert.equal((await request(`films/${filmId}/collaborators`, "POST", { action: "invite", email: memberEmail, role: "viewer" }, owner.cookie)).status, 201,
+        "A revoked invitation can be reissued with a fresh notification");
+      const reissuedInbox = await request("notifications", "GET", undefined, member.cookie);
+      assert.equal(reissuedInbox.body.notifications.filter(item => item.notification_type === "film_invitation").length, 2);
+      const reissuedNotification = reissuedInbox.body.notifications.find(item => item.notification_type === "film_invitation" && item.role === "viewer");
+      assert.ok(reissuedNotification && reissuedNotification.id !== inviteNotification.id);
+      assert.equal((await request("collaboration/invitations", "POST", { filmId, action: "decline" }, member.cookie)).status, 200);
+      const ownerDeclineInbox = await request("notifications", "GET", undefined, owner.cookie);
+      assert.equal(ownerDeclineInbox.body.notifications.filter(item => item.notification_type === "invitation_declined").length, 1,
+        "Declining an invite notifies the inviter exactly once");
+      assert.equal(ownerDeclineInbox.body.unread_count, 2, "Accepted and declined events are both unread for the inviter");
     } finally {
       fs.rmSync(mediaPath, { force: true });
     }

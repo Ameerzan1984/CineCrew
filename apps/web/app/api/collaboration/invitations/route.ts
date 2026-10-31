@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { currentUser } from "../../../../lib/auth";
 import { database } from "../../../../lib/db";
 import { allowedOrigin } from "../../../../lib/origin";
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
     const film = await client.query("SELECT id FROM films WHERE id=$1 FOR SHARE", [input.filmId]);
     if (!film.rowCount) { await client.query("ROLLBACK"); return json({ error: "Invitation not found" }, 404); }
     const found = await client.query(
-      "SELECT role,status FROM film_invitations WHERE film_id=$1 AND user_id=$2 FOR UPDATE", [input.filmId, user.id]);
+      "SELECT role,status,invited_by FROM film_invitations WHERE film_id=$1 AND user_id=$2 FOR UPDATE", [input.filmId, user.id]);
     const invitation = found.rows[0];
     if (!invitation || invitation.status !== "pending") { await client.query("ROLLBACK"); return json({ error: "Invitation not found" }, 404); }
     if (input.action === "accept") {
@@ -46,6 +47,11 @@ export async function POST(request: NextRequest) {
     } else {
       await client.query("UPDATE film_invitations SET status='declined',updated_at=now() WHERE film_id=$1 AND user_id=$2", [input.filmId, user.id]);
     }
+    await client.query(
+      `INSERT INTO notifications(id,recipient_id,actor_id,film_id,notification_type,role)
+       VALUES($1,$2,$3,$4,$5,$6)`,
+      [randomUUID(), invitation.invited_by, user.id, input.filmId,
+        input.action === "accept" ? "invitation_accepted" : "invitation_declined", invitation.role]);
     await client.query("COMMIT");
     return json({ accepted: input.action === "accept" });
   } catch { await client.query("ROLLBACK"); return json({ error: "Invitation could not be updated" }, 503); }

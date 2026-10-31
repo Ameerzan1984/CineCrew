@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { currentUser } from "../../../../../lib/auth";
 import { database } from "../../../../../lib/db";
 import { allowedOrigin } from "../../../../../lib/origin";
@@ -56,11 +57,18 @@ export async function POST(request: NextRequest, context: Context) {
         if (!invitee.rowCount || invitee.rows[0].id === user.id) { await client.query("ROLLBACK"); return json({ error: "An eligible CineMesh account was not found" }, 404); }
         const member = await client.query("SELECT 1 FROM film_contributors WHERE film_id=$1 AND user_id=$2", [filmId, invitee.rows[0].id]);
         if (member.rowCount) { await client.query("ROLLBACK"); return json({ error: "This account is already a collaborator" }, 409); }
+        const prior = await client.query(
+          "SELECT status,role,invited_by FROM film_invitations WHERE film_id=$1 AND user_id=$2 FOR UPDATE", [filmId, invitee.rows[0].id]);
+        const needsNotification = prior.rows[0]?.status !== "pending" || prior.rows[0]?.role !== role || prior.rows[0]?.invited_by !== user.id;
         await client.query(
           `INSERT INTO film_invitations(film_id,user_id,invited_by,role,status)
            VALUES($1,$2,$3,$4,'pending')
            ON CONFLICT(film_id,user_id) DO UPDATE SET invited_by=EXCLUDED.invited_by,role=EXCLUDED.role,status='pending',updated_at=now()`,
           [filmId, invitee.rows[0].id, user.id, role]);
+        if (needsNotification) await client.query(
+          `INSERT INTO notifications(id,recipient_id,actor_id,film_id,notification_type,role)
+           VALUES($1,$2,$3,$4,'film_invitation',$5)`,
+          [randomUUID(), invitee.rows[0].id, user.id, filmId, role]);
         await client.query("COMMIT");
         return json({ invited: true }, 201);
       }
