@@ -94,7 +94,14 @@ export default function Production({ filmId, ar, status, onPublicationChange }: 
       setQuote(result);
       setSpendCeiling(Number(result.estimatedUsd).toFixed(4));
       setExplicitApproval(false);
-    } catch (e) { setNotice((e as Error).message); }
+    } catch (e) {
+      const message = (e as Error).message;
+      setNotice(message === "HIGGSFIELD_PRICE_ESTIMATE_UNVERIFIED"
+        ? (ar
+          ? "تعذّر التحقق من مسار تقدير السعر الرسمي لـHiggsfield لهذا النموذج. لم يُرسل أي طلب إلى المزود، والتوليد المدفوع متوقف حتى يتوفر تقدير موثوق."
+          : "Higgsfield's official price-estimate endpoint for this model is unverified. No provider request was sent, and paid generation is disabled until a reliable quote is available.")
+        : message);
+    }
     finally { setBusy(false); }
   }
 
@@ -184,7 +191,12 @@ export default function Production({ filmId, ar, status, onPublicationChange }: 
       {job.status === "uncertain" && job.mine && <><p>{ar ? "تحقق من لوحة Higgsfield قبل إعادة المحاولة لتجنب طلب أو خصم مكرر." : "Check your Higgsfield dashboard before retrying so you do not accidentally submit or pay twice."}</p><button type="button" className="outline-button" disabled={busy} onClick={() => resolveUncertain(job)}>{ar ? "تحققت ولم أجد الطلب" : "I checked; no request exists"}</button></>}
       {job.mine && job.provider_request_id && ["queued", "in_progress"].includes(job.status) && <button type="button" className="outline-button" disabled={busy} onClick={() => refreshGeneration(job).catch(e => setNotice((e as Error).message))}>{ar ? "تحديث الحالة" : "Refresh status"}</button>}
     </article>)}
-    {scene.mine && canEdit && <button type="button" className="primary-button" disabled={busy || !scene.description.trim() || jobs.some(job => ["submitting", "uncertain", "queued", "in_progress"].includes(job.status))} onClick={() => generate(scene,continuation)}>{continuation ? (ar ? `احصل على تقدير ثم أكّد التكملة · ${continuation.scene_title}` : `Estimate, then approve continuation from “${continuation.scene_title}”`) : (ar ? "احصل على تقدير قبل توليد ٤ ثوانٍ" : "Get a price estimate before generating 4 seconds")}</button>}
+    {scene.mine && canEdit && <>
+      <p className="connection-note" role="status">{ar
+        ? "توليد Higgsfield متوقف مؤقتًا: التوثيق العام لا يحدد عقد REST الدقيق لتقدير سعر USD لهذا النموذج. لم نرسل طلبًا ولم ننشئ تقديرًا أو موافقة إنفاق."
+        : "Higgsfield generation is paused: public docs do not specify this model's exact USD estimate REST contract. No provider request or spend approval has been created."}</p>
+      <button type="button" className="primary-button" disabled>{ar ? "التوليد متوقف حتى توثيق السعر" : "Generation disabled until pricing is verified"}</button>
+    </>}
     </div>;
   };
 

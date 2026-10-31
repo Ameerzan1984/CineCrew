@@ -52,22 +52,12 @@ test("rejects malformed responses and does not imply verification", async () => 
   assert.equal(client.connectionVerified, false);
 });
 
-test("requests an authenticated exact USD estimate without creating a generation", async () => {
-  let captured: { url: string; options: RequestInit } | null = null;
-  const client = new HiggsfieldApiClient(creds, async (url, options = {}) => {
-    captured = { url: String(url), options };
-    return Response.json({ usd: "0.1234", credits: "2.5" });
-  });
-  assert.deepEqual(await client.estimate("/bytedance/seedance-2.5/text-to-video", { prompt: "test", duration: 4 }), { usd: 0.1234 });
-  assert.equal(captured?.url, "https://api.higgsfield.ai/estimate/bytedance/seedance-2.5/text-to-video");
-  assert.equal((captured?.options.headers as Record<string, string>).Authorization, "Key test-id:test-secret");
-  assert.equal(captured?.options.method, "POST");
-  assert.equal(client.connectionVerified, true);
-});
-
-test("fails closed when an estimate has no exact USD price", async () => {
-  const client = new HiggsfieldApiClient(creds, async () => Response.json({ credits: "1.5" }));
-  await assert.rejects(client.estimate("/bytedance/seedance-2.5/text-to-video", { prompt: "test" }), ProviderStateError);
+test("does not guess the undocumented estimate REST contract or send a request", async () => {
+  let calls = 0;
+  const client = new HiggsfieldApiClient(creds, async () => { calls++; throw new Error("must not call the provider"); });
+  await assert.rejects(client.estimate("/bytedance/seedance-2.5/text-to-video", { prompt: "test", duration: 4 }),
+    /exact USD estimate REST contract is not verified; no provider request was sent/);
+  assert.equal(calls, 0);
   assert.equal(client.connectionVerified, false);
 });
 

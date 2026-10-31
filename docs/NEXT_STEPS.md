@@ -86,3 +86,11 @@ The hosted PostgreSQL CI passes migrations, auth/collaboration/publication/socia
 ### CI follow-up
 
 Run `2673511` passed the earlier database, unit/type/build, provider, engine, scheduler/render, PostgreSQL integration, and desktop/mobile Playwright checks. Profile integration passed in CI run 41193243766. Watch API, visibility and contributor-credit integration passed in CI runs 41193901765 and 41193897793. The desktop profile-button fix, plus mobile, passed in CI runs 41194277322 and 41194274151. Live OAuth and paid provider generation remain unverified.
+
+## Immediate provider-pricing gate (2026-10-31)
+
+1. Keep Higgsfield paid generation disabled. Public official materials confirm estimates generally but do not disclose a verifiable route/response contract for this model.
+2. Obtain the current estimate contract from Higgsfield's official docs/support or official SDK. Verify route, request shape, USD currency, adjustments, and whether the value is a quote or only indicative. Do not probe guessed paths.
+3. Add a contract test based only on the verified schema. Keep the existing test asserting zero network calls until that evidence exists.
+4. Only after exact cost details are shown in the UI may the contributor explicitly approve the one request. Do not claim a provider-enforced spend cap unless documented.
+5. After this gate, continue with real ChatGPT OAuth/inference, CineCrew FilmDSL run, disposable PostgreSQL restore/permissions, durable workers/storage, and two-account credential-isolation acceptance.

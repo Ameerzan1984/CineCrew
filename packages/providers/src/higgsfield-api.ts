@@ -77,22 +77,14 @@ export class HiggsfieldApiClient {
     catch { throw new ProviderStateError("Higgsfield returned an invalid JSON response."); }
   }
 
-  /** Ask Higgsfield for a pre-generation USD estimate; does not submit a generation. */
-  async estimate(modelPath: string, body: Record<string, unknown>): Promise<HiggsfieldEstimate> {
-    if (!modelPathPattern.test(modelPath) || modelPath.split("/").some(part => part === "." || part === "..") || modelPath.startsWith("/requests/")) {
-      throw new ProviderStateError("Invalid model endpoint path.");
-    }
-    // Higgsfield documents that API requests can be estimated before generation,
-    // but its public SDK/model reference does not publish this REST route or shape.
-    // Treat only a successful exact-USD response as a quote and fail closed otherwise;
-    // unit-test mocks do not establish that a real account exposes this estimate.
-    const raw = await this.call(`${API_ORIGIN}/estimate${modelPath}`, "POST", body);
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ProviderStateError("Higgsfield returned an invalid cost estimate.");
-    const quote = raw as Record<string, unknown>;
-    const usd = typeof quote.usd === "number" ? quote.usd : typeof quote.usd === "string" ? Number(quote.usd) : Number.NaN;
-    if (!Number.isFinite(usd) || usd < 0) throw new ProviderStateError("Higgsfield did not return a usable USD estimate.");
-    this.verified = true;
-    return { usd };
+  /**
+   * Do not guess Higgsfield's estimate endpoint or response shape. Its public
+   * docs describe estimating a request but do not specify this REST contract.
+   * Keep this fail-closed method so callers cannot accidentally make a
+   * speculative authenticated request or mint a spend-approval quote.
+   */
+  async estimate(_modelPath: string, _body: Record<string, unknown>): Promise<HiggsfieldEstimate> {
+    throw new ProviderUnavailableError("Higgsfield's exact USD estimate REST contract is not verified; no provider request was sent.");
   }
 
   /** Submit only an endpoint and body verified against that model's current official docs. */

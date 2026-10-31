@@ -53,6 +53,12 @@ async function main() {
     assert.equal(second.status, 201);
     const secondSceneId = second.body.scenes.find(scene => scene.position === 2).id;
     assert.equal((await request("connections", "POST", { action: "save", keyId: "dummy-id", keySecret: "dummy-secret" }, member.cookie)).status, 200);
+    const deniedEstimate = await request(`films/${filmId}/generations/estimate`, "POST", { sceneId: secondSceneId, requestKey: randomUUID() }, owner.cookie);
+    assert.equal(deniedEstimate.status, 403, "A film owner cannot request a quote using another contributor's provider account");
+    const unavailableEstimate = await request(`films/${filmId}/generations/estimate`, "POST", { sceneId: secondSceneId, requestKey: randomUUID() }, member.cookie);
+    assert.equal(unavailableEstimate.status, 503);
+    assert.equal(unavailableEstimate.body.error, "HIGGSFIELD_PRICE_ESTIMATE_UNVERIFIED");
+    assert.equal("quoteToken" in unavailableEstimate.body, false, "An undocumented estimate contract must not create a spend token");
 
     // Seed an expired result so the endpoint exercises contributor and ordering checks without making a paid provider request.
     const firstJobId = randomUUID();
