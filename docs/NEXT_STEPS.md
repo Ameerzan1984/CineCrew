@@ -59,6 +59,16 @@
 
 ## Immediate verification state (2026-10-31)
 
+### Latest implementation checkpoint (2026-10-31, based on commit 7f6a7a5)
+
+Discover publishing and a GitHub Actions PostgreSQL/Playwright workflow were added after the earlier verification note. Local web unit/type/build and provider/engine/worker tests pass as recorded in `EXPERIMENT_LOG.md`; DB integration was not run locally. The workflow is authored but its first hosted execution is pending push.
+
+1. Push the current `cinemesh` change and inspect the `CineMesh CI` check on PR #1. Fix failures and wait for the workflow to complete before claiming DB-backed publication or E2E acceptance.
+2. Once CI passes, run the real ChatGPT sign-in in the locally running app only after the user's browser consent. Verify connection, account model list, a live Responses request, then a real CineCrew idea-to-FilmDSL run. Record failures and prove checkpoint restoration; do not submit a provider job in this step.
+3. Connect the user's newly rotated Higgsfield API credential through Connections. Verify the documented estimate contract without submitting generation; if the provider contract remains unverifiable, leave the UI fail-closed and report it.
+4. Only after the user reviews exact model, prompt, duration, resolution, audio settings and a verified price may that contributor approve a short paid generation. Persist it, verify public/private media access, and test an explicit unpublish. Obtain approval before each paid job.
+5. Continue with the next unchecked product acceptance rows in `COMPLETION_CHECKLIST.md`: social engagement, durable agent checkpoints, provider worker, background rendering, remaining pages and production deployment.
+
 1. On a machine/environment where Docker Desktop is available and permitted, keep the existing local `.env` unchanged and start the existing isolated development stack from the repository root with `docker compose up --build -d`. It binds the web app to loopback and creates a dedicated Compose PostgreSQL volume. Wait for migration and web services to become healthy. Run both integration tests inside the web container with `docker compose exec -e CINEMESH_TEST_URL=http://127.0.0.1:3000 web sh -c 'export CINEMESH_TEST_DATABASE_URL="$DATABASE_URL"; npm run test:integration && npm run test:continuation'` so they reach the private Compose DB. If Docker is unavailable, use an explicitly approved disposable PostgreSQL service; do not install or start a database through a route blocked by environment policy.
 2. Complete Sign in with ChatGPT through the official app flow. Confirm OAuth callback, connection state, model discovery, and one real Responses request using the authorized model. Do not substitute mock tests for this evidence.
 3. Confirm the exact Higgsfield API estimate path and response with a newly rotated key saved through Connections. Public docs confirm that an estimate endpoint exists, but the public SDK/model API reference does not publish the exact REST schema. The current app expects a provider USD estimate and fails closed if it is absent. Do not substitute CLI/MCP plan credits for the API USD amount or use a paid generation to test pricing.

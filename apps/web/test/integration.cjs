@@ -24,6 +24,9 @@ async function main() {
   assert.equal((await request("community", "POST", { action: "unfollow", userId: b.body.id }, a.cookie)).status, 200);
   const film = await request("films", "POST", { title: "Shared short", premise: "Two contributors create connected shots for one short film.", genre: "Drama", duration_minutes: 1, mode: "collaborative" }, a.cookie);
   assert.equal(film.status, 201); const id = film.body.id;
+  assert.equal((await request("discover")).body.films.some(item => item.id === id), false, "Drafts must not appear in public discovery");
+  assert.equal((await request(`films/${id}/publish`, "POST", { action: "publish" }, a.cookie)).status, 409, "A film needs a saved render before publishing");
+  assert.equal((await request(`films/${id}/publish`, "POST", { action: "publish" }, b.cookie)).status, 404, "Only the owner can publish");
   assert.equal((await request(`films/${id}`, "GET", undefined, b.cookie)).status, 404);
   assert.equal((await request(`films/${id}/collaborators`, "POST", { action: "invite", email: emailB, role: "editor" }, a.cookie)).status, 201);
   const inbox = await request("collaboration/invitations", "GET", undefined, b.cookie);

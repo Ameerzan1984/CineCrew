@@ -48,5 +48,7 @@ env/
 node_modules/
 .next/
 *.tsbuildinfo
+apps/web/test-results/
+apps/web/playwright-report/
 apps/web/.data/
 *.sqlite3

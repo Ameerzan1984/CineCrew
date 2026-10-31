@@ -14,14 +14,15 @@ type Context = { params: Promise<{ id: string }> };
 export async function GET(request: NextRequest, context: Context) {
   try {
     const user = await currentUser();
-    if (!user) return response(401);
     const { id } = await context.params;
     if (!uuid.test(id)) return response(404);
     const found = await database().query(`SELECT a.storage_key,a.size_bytes,a.mime_type
-      FROM media_assets a WHERE a.id=$1 AND EXISTS(
-        SELECT 1 FROM films f LEFT JOIN film_contributors c ON c.film_id=f.id AND c.user_id=$2
-        WHERE f.id=a.film_id AND (f.owner_id=$2 OR c.user_id=$2)
-      )`, [id,user.id]);
+      FROM media_assets a JOIN films f ON f.id=a.film_id WHERE a.id=$1 AND (
+        (f.status='published' AND a.kind='film_render') OR
+        ($2::uuid IS NOT NULL AND (f.owner_id=$2 OR EXISTS(
+          SELECT 1 FROM film_contributors c WHERE c.film_id=f.id AND c.user_id=$2
+        )))
+      )`, [id,user?.id ?? null]);
     if (!found.rowCount) return response(404);
     const asset = found.rows[0];
     const stored = await mediaFileInfo(asset.storage_key);

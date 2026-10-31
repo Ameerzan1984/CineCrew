@@ -1,6 +1,8 @@
 // Run only against an explicitly configured disposable CineMesh app and PostgreSQL database.
-const { randomBytes, randomUUID } = require("node:crypto");
+const { createHash, randomBytes, randomUUID } = require("node:crypto");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { Pool } = require("pg");
 
 const base = process.env.CINEMESH_TEST_URL;
@@ -31,6 +33,9 @@ async function main() {
     const film = await request("films", "POST", { title: "Continuation test", premise: "Two contributors create consecutive shots.", genre: "Drama", duration_minutes: 1, mode: "collaborative" }, owner.cookie);
     assert.equal(film.status, 201);
     const filmId = film.body.id;
+    assert.equal((await request("discover")).body.films.some(item => item.id === filmId), false);
+    assert.equal((await request(`films/${filmId}/publish`, "POST", { action: "publish" }, owner.cookie)).status, 409);
+    assert.equal((await request(`films/${filmId}/publish`, "POST", { action: "publish" }, member.cookie)).status, 404);
     const matchingDatabase = await pool.query("SELECT owner_id FROM films WHERE id=$1", [filmId]);
     assert.equal(matchingDatabase.rows[0]?.owner_id, owner.body.id, "The disposable PostgreSQL database must be the same database used by the test app");
 
@@ -68,7 +73,35 @@ async function main() {
     assert.equal(memberClaim.status, 200); assert.equal(memberClaim.body.role, "editor");
     assert.equal(memberClaim.body.scenes.find(scene => scene.id === agentSecond).mine, true);
     assert.equal((await request(`films/${filmId}/production`, "POST", { action: "claim_scene", id: agentFirst }, member.cookie)).status, 404);
-    console.log("PASS: two-user ownership, agent shot claims, and earlier-shot continuation checks; no provider generation was submitted");
+
+    const renderId = randomUUID();
+    const storageKey = `${filmId}/renders/${randomUUID()}.mp4`;
+    const mediaRoot = path.resolve(process.env.CINEMESH_MEDIA_DIR || path.join(__dirname, "../.data/media"));
+    const mediaPath = path.resolve(mediaRoot, ...storageKey.split("/"));
+    const fixture = Buffer.from(`CineMesh public render authorization fixture ${randomUUID()}`);
+    fs.mkdirSync(path.dirname(mediaPath), { recursive: true });
+    fs.writeFileSync(mediaPath, fixture, { flag: "wx" });
+    try {
+      await pool.query(`INSERT INTO media_assets(id,film_id,kind,storage_key,mime_type,size_bytes,sha256,created_by)
+        VALUES($1,$2,'film_render',$3,'video/mp4',$4,$5,$6)`,
+        [renderId,filmId,storageKey,fixture.length,createHash("sha256").update(fixture).digest("hex"),owner.body.id]);
+      assert.equal((await fetch(`${base}/api/media/${renderId}`)).status, 404, "Draft render files stay private");
+      const published = await request(`films/${filmId}/publish`, "POST", { action: "publish" }, owner.cookie);
+      assert.equal(published.status, 200); assert.equal(published.body.status, "published");
+      const discovery = await request("discover");
+      assert.equal(discovery.status, 200);
+      assert.equal(discovery.body.films.find(item => item.id === filmId).media_asset_id, renderId);
+      const publicMedia = await fetch(`${base}/api/media/${renderId}`);
+      assert.equal(publicMedia.status, 200, "Published film renders may be streamed without a CineMesh account");
+      assert.equal(Buffer.from(await publicMedia.arrayBuffer()).toString(), fixture.toString());
+      assert.equal((await request(`films/${filmId}/publish`, "POST", { action: "unpublish" }, owner.cookie)).body.status, "draft");
+      assert.equal((await request("discover")).body.films.some(item => item.id === filmId), false);
+      assert.equal((await fetch(`${base}/api/media/${renderId}`)).status, 404, "Unpublishing removes public render access");
+    } finally {
+      fs.rmSync(mediaPath, { force: true });
+    }
+
+    console.log("PASS: two-user ownership, shot claims, continuation checks, owner-only publish, public Discover playback authorization, and unpublish revocation; no provider generation was submitted");
   } finally { await pool.end(); }
 }
 

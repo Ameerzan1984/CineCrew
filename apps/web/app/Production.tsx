@@ -10,7 +10,7 @@ type Data = { role: "owner" | "editor" | "viewer"; scenes: Scene[]; characters: 
 type CostQuote = { quoteToken: string; estimatedUsd: number; currency: "USD"; modelPath: string; prompt: string; durationSeconds: number; plannedDurationSeconds: number; resolution: string; audio: boolean; expiresAt: string };
 type PendingGeneration = { scene: Scene; continuation?: Generation; requestKey: string };
 
-export default function Production({ filmId, ar }: { filmId: string; ar: boolean }) {
+export default function Production({ filmId, ar, status, onPublicationChange }: { filmId: string; ar: boolean; status: "draft" | "published"; onPublicationChange: (status: "draft" | "published") => void }) {
   const [data, setData] = useState<Data>({ role: "viewer", scenes: [], characters: [], generations: [], renders: [], collaborators: [], invitations: [] });
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -218,6 +218,21 @@ export default function Production({ filmId, ar }: { filmId: string; ar: boolean
       <h3>{ar ? "نسخ الفيلم المجمعة" : "Assembled films"}</h3>
       {canEdit && <button type="button" className="primary-button" disabled={busy || data.generations.filter(job => job.status === "completed" && job.media_asset_id).length < 2} onClick={assembleFilm}>{ar ? "اجمع اللقطات المحفوظة بـFFmpeg" : "Assemble saved shots with FFmpeg"}</button>}
       {canEdit && <small>{ar ? "يختار أحدث لقطة محفوظة لكل مشهد، ويرتبها حسب ترتيب المشاهد. هذا الإصدار مخصص للتجارب القصيرة." : "Uses the latest saved clip per scene, in scene order. This version is for short test films."}</small>}
+      {isOwner && <div className="publish-controls">
+        <button type="button" className="outline-button" disabled={busy || (status === "draft" && data.renders.length === 0)} onClick={async () => {
+          setBusy(true); setNotice("");
+          try {
+            const action = status === "published" ? "unpublish" : "publish";
+            const result = await request(`/api/films/${filmId}/publish`, "POST", { action }) as { status: "draft" | "published" };
+            onPublicationChange(result.status);
+            setNotice(result.status === "published"
+              ? (ar ? "أصبح الفيلم منشورًا في صفحة اكتشف." : "Film published to Discover.")
+              : (ar ? "أُعيد الفيلم إلى المسودات." : "Film returned to drafts."));
+          } catch (error) { setNotice((error as Error).message); }
+          finally { setBusy(false); }
+        }}>{status === "published" ? (ar ? "إلغاء النشر" : "Unpublish film") : (ar ? "نشر الفيلم" : "Publish film")}</button>
+        {status === "draft" && data.renders.length === 0 && <small>{ar ? "اجمع نسخة فيديو محفوظة قبل نشر الفيلم." : "Assemble and save a film render before publishing."}</small>}
+      </div>}
       {data.renders.map(render => <article className="production-form" key={render.id}><strong>{ar ? "فيلم مجمع" : "Assembled film"}</strong><video controls playsInline preload="metadata" src={`/api/media/${render.id}`} /><small>{ar ? `${(Number(render.size_bytes) / 1048576).toFixed(1)} م.ب · ${new Date(render.created_at).toLocaleString()}` : `${(Number(render.size_bytes) / 1048576).toFixed(1)} MiB · ${new Date(render.created_at).toLocaleString()}`}</small></article>)}
     </div>
     {isOwner && <div className="settings-card">

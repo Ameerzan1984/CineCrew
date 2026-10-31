@@ -10,7 +10,8 @@
     "db:migrate": "node scripts/migrate.cjs",
     "test:unit": "node --test test/*.test.ts",
     "test:integration": "node test/integration.cjs",
-    "test:continuation": "node test/continuation.integration.cjs"
+    "test:continuation": "node test/continuation.integration.cjs",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -25,6 +26,7 @@
     "postcss": "8.5.23"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.0.0",
