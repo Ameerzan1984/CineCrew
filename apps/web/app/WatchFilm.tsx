@@ -10,7 +10,7 @@ type WatchFilmData = {
   media_asset_id: string; likes_count: number; comments_count: number; liked_by_me: boolean;
 };
 type Credit = { user_id: string; display_name: string; role: string };
-type Comment = { id: string; body: string; created_at: string; author_display_name: string };
+type Comment = { id: string; body: string; created_at: string; parent_comment_id: string | null; author_display_name: string };
 type Review = { id: string; rating: number; body: string; created_at: string; updated_at: string; author_display_name: string; is_own: boolean };
 type ReviewSummary = { average_rating: number; review_count: number };
 
@@ -25,6 +25,8 @@ export default function WatchFilm({ filmId, ar, canReport, onBack, onProfile, on
   const [film, setFilm] = useState<WatchFilmData | null>(null);
   const [credits, setCredits] = useState<Credit[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [replyTarget, setReplyTarget] = useState<string | null>(null);
+  const [replyDraft, setReplyDraft] = useState("");
   const [reviews, setReviews] = useState<Review[]>([]);
   const [reviewSummary, setReviewSummary] = useState<ReviewSummary>({ average_rating: 0, review_count: 0 });
   const [myReview, setMyReview] = useState<Review | null>(null);
@@ -38,7 +40,7 @@ export default function WatchFilm({ filmId, ar, canReport, onBack, onProfile, on
 
   useEffect(() => {
     let cancelled = false;
-    setFilm(null); setCredits([]); setComments([]); setReviews([]); setMyReview(null); setReviewSummary({ average_rating: 0, review_count: 0 });
+    setFilm(null); setCredits([]); setComments([]); setReplyTarget(null); setReplyDraft(""); setReviews([]); setMyReview(null); setReviewSummary({ average_rating: 0, review_count: 0 });
     setDraft(""); setReviewDraft(""); setReviewRating(5); setReviewMessage(""); setError(""); setLoading(true);
     Promise.all([
       fetch(`/api/watch/${filmId}`, { cache: "no-store" }),
@@ -73,20 +75,22 @@ export default function WatchFilm({ filmId, ar, canReport, onBack, onProfile, on
     finally { setBusy(false); }
   }
 
-  async function addComment(event: FormEvent<HTMLFormElement>) {
+  async function addComment(event: FormEvent<HTMLFormElement>, parentCommentId: string | null = null) {
     event.preventDefault();
-    if (!film || !draft.trim()) return;
+    const commentBody = parentCommentId ? replyDraft : draft;
+    if (!film || !commentBody.trim()) return;
     setBusy(true); setError("");
     try {
       const response = await fetch(`/api/films/${film.id}/comments`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: draft }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: commentBody, parentCommentId }),
       });
       const data = await response.json();
       if (response.status === 401) { setError(ar ? "\u0633\u062c\u0651\u0644 \u0627\u0644\u062f\u062e\u0648\u0644 \u0644\u0643\u062a\u0627\u0628\u0629 \u062a\u0639\u0644\u064a\u0642." : "Sign in to comment."); return; }
       if (!response.ok) throw new Error(data.error || "Could not add comment");
       setComments(current => [...current, data.comment]);
       setFilm(current => current ? { ...current, comments_count: current.comments_count + 1 } : current);
-      setDraft("");
+      if (parentCommentId) { setReplyDraft(""); setReplyTarget(null); }
+      else setDraft("");
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   }
@@ -179,9 +183,27 @@ export default function WatchFilm({ filmId, ar, canReport, onBack, onProfile, on
           <button type="button" className="watch-like" aria-pressed={film.liked_by_me} disabled={busy} onClick={() => void toggleLike()}>
             {film.liked_by_me ? "♥" : "♡"} {film.likes_count} {ar ? "\u0625\u0639\u062c\u0627\u0628" : "likes"}
           </button>
-          <div className="watch-comments">{comments.map(comment => <article key={comment.id}>
-            <strong>{comment.author_display_name}</strong><p>{comment.body}</p>
-          </article>)}{comments.length === 0 && <small>{ar ? "\u0644\u0627 \u062a\u0648\u062c\u062f \u062a\u0639\u0644\u064a\u0642\u0627\u062a \u0628\u0639\u062f." : "No comments yet."}</small>}</div>
+          <div className="watch-comments" aria-label={ar ? "\u0627\u0644\u062a\u0639\u0644\u064a\u0642\u0627\u062a" : "Film comments"}>
+            {comments.filter(comment => !comment.parent_comment_id).map(comment => <article key={comment.id} className="watch-comment">
+              <strong>{comment.author_display_name}</strong><p>{comment.body}</p>
+              {canReport && <button className="text-button watch-reply-button" type="button" aria-expanded={replyTarget === comment.id}
+                onClick={() => { setReplyTarget(current => current === comment.id ? null : comment.id); setReplyDraft(""); }}>
+                {ar ? "\u0631\u062f" : "Reply"}
+              </button>}
+              {comments.filter(reply => reply.parent_comment_id === comment.id).length > 0 && <div className="watch-comment-replies">
+                {comments.filter(reply => reply.parent_comment_id === comment.id).map(reply => <article key={reply.id} className="watch-comment-reply">
+                  <strong>{reply.author_display_name}</strong><p>{reply.body}</p>
+                </article>)}
+              </div>}
+              {replyTarget === comment.id && <form className="watch-reply-form" onSubmit={event => void addComment(event, comment.id)}>
+                <textarea value={replyDraft} maxLength={2000} rows={2} onChange={event => setReplyDraft(event.target.value)}
+                  placeholder={ar ? "\u0627\u0643\u062a\u0628 \u0631\u062f\u0643..." : "Write a reply…"}
+                  aria-label={ar ? "\u0627\u0643\u062a\u0628 \u0631\u062f\u0643" : "Write a reply"} />
+                <button className="primary-button" type="submit" disabled={busy || !replyDraft.trim()}>{ar ? "\u0646\u0634\u0631 \u0627\u0644\u0631\u062f" : "Post reply"}</button>
+              </form>}
+            </article>)}
+            {comments.length === 0 && <small>{ar ? "\u0644\u0627 \u062a\u0648\u062c\u062f \u062a\u0639\u0644\u064a\u0642\u0627\u062a \u0628\u0639\u062f." : "No comments yet."}</small>}
+          </div>
           <form onSubmit={event => void addComment(event)}><textarea value={draft} maxLength={2000} rows={3} onChange={event => setDraft(event.target.value)} placeholder={ar ? "\u0627\u0643\u062a\u0628 \u062a\u0639\u0644\u064a\u0642\u0627\u064b..." : "Write a comment…"} aria-label={ar ? "\u0627\u0643\u062a\u0628 \u062a\u0639\u0644\u064a\u0642\u0627\u064b" : "Write a comment"} />
             <button className="primary-button" type="submit" disabled={busy || !draft.trim()}>{ar ? "\u0646\u0634\u0631" : "Post comment"}</button></form>
         </aside>

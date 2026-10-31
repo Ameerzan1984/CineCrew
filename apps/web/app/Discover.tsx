@@ -20,7 +20,7 @@ type PublishedFilm = {
   published_at: string;
 };
 
-type FilmComment = { id: string; body: string; created_at: string; author_display_name: string };
+type FilmComment = { id: string; body: string; created_at: string; parent_comment_id: string | null; author_display_name: string };
 
 export default function Discover({ ar, onSignIn, onOpenProfile, onOpenFilm }: { ar: boolean; onSignIn: () => void; onOpenProfile: (userId: string) => void; onOpenFilm: (filmId: string) => void }) {
   const [films, setFilms] = useState<PublishedFilm[]>([]);
@@ -143,8 +143,13 @@ export default function Discover({ ar, onSignIn, onOpenProfile, onOpenFilm }: { 
               ? <button type="button" onClick={onSignIn}>{ar ? "\u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644" : "Sign in"}</button> : null}
           </p>}
           {expandedComments[film.id] && <div className="discover-comments">
-            {(comments[film.id] || []).map(comment => <div className="discover-comment" key={comment.id}>
+            {(comments[film.id] || []).filter(comment => !comment.parent_comment_id).map(comment => <div className="discover-comment" key={comment.id}>
               <strong>{comment.author_display_name}</strong><p>{comment.body}</p>
+              {(comments[film.id] || []).filter(reply => reply.parent_comment_id === comment.id).length > 0 && <div className="discover-comment-replies">
+                {(comments[film.id] || []).filter(reply => reply.parent_comment_id === comment.id).map(reply => <div className="discover-comment" key={reply.id}>
+                  <strong>{reply.author_display_name}</strong><p>{reply.body}</p>
+                </div>)}
+              </div>}
             </div>)}
             {!busyFilms[film.id] && comments[film.id]?.length === 0 && <small>{ar ? "\u0644\u0627 \u062a\u0648\u062c\u062f \u062a\u0639\u0644\u064a\u0642\u0627\u062a \u0628\u0639\u062f." : "No comments yet."}</small>}
             <form onSubmit={event => void addComment(film.id, event)}>

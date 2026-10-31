@@ -125,13 +125,15 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
     }
     if (path[0] === "films" && path[1] && uuid.test(path[1]) && path[2] === "comments" && path.length === 3 && method === "GET") {
       const result = await db.query(
-        `SELECT c.id,c.body,c.created_at,u.display_name AS author_display_name
+        `SELECT c.id,c.body,c.created_at,c.parent_comment_id,u.display_name AS author_display_name
          FROM comments c
          JOIN films f ON f.id=c.film_id
          JOIN users u ON u.id=c.author_id
+         LEFT JOIN comments parent ON parent.id=c.parent_comment_id
          WHERE c.film_id=$1 AND f.status='published' AND f.moderation_hidden_at IS NULL
-         ORDER BY c.created_at ASC,c.id ASC
-         LIMIT 100`, [path[1]]);
+         ORDER BY COALESCE(parent.created_at,c.created_at), COALESCE(parent.id,c.id),
+                  (c.parent_comment_id IS NOT NULL), c.created_at, c.id
+         LIMIT 300`, [path[1]]);
       return json({ comments: result.rows });
     }
     if (path[0] === "films" && path[1] && uuid.test(path[1]) && path[2] === "reviews" && path.length === 3 && method === "GET") {
@@ -182,11 +184,18 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
       const input = await body(request);
       const comment = text(input.body, 2000);
       if (!comment) return error("Comment text is required (up to 2,000 characters)", 400);
+      const parentCommentId = input.parentCommentId == null ? null : input.parentCommentId;
+      if (parentCommentId !== null && (typeof parentCommentId !== "string" || !uuid.test(parentCommentId))) {
+        return error("Reply target is invalid", 400);
+      }
       const result = await db.query(
-        `INSERT INTO comments(id,film_id,author_id,body)
-         SELECT $1,f.id,$3,$4 FROM films f WHERE f.id=$2 AND f.status='published' AND f.moderation_hidden_at IS NULL
-         RETURNING id,body,created_at`, [randomUUID(), path[1], user.id, comment]);
-      if (!result.rows[0]) return error("Film not found", 404);
+        `INSERT INTO comments(id,film_id,author_id,body,parent_comment_id)
+         SELECT $1,f.id,$3,$4,p.id FROM films f
+         LEFT JOIN comments p ON p.id=$5::uuid AND p.film_id=f.id AND p.parent_comment_id IS NULL
+         WHERE f.id=$2 AND f.status='published' AND f.moderation_hidden_at IS NULL
+           AND ($5::uuid IS NULL OR p.id IS NOT NULL)
+         RETURNING id,body,created_at,parent_comment_id`, [randomUUID(), path[1], user.id, comment, parentCommentId]);
+      if (!result.rows[0]) return error("Film or reply target was not found", 404);
       return json({ comment: { ...result.rows[0], author_display_name: user.display_name } }, 201);
     }
     if (path[0] === "films" && path[1] && uuid.test(path[1]) && path[2] === "reviews" && path.length === 3 && method === "PUT") {

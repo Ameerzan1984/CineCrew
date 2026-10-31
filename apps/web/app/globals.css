@@ -75,3 +75,10 @@
 .watch-review p { margin: 5px 0 0; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .watch-review-form fieldset:disabled { opacity: .6; }
 .watch-review-form button:disabled { opacity: .55; cursor: wait; }
+.watch-comment { padding: 10px 0; border-bottom: 1px solid #30303a; }
+.watch-comment-replies { margin: 8px 0 0; padding-inline-start: 14px; border-inline-start: 2px solid #46395e; }
+.watch-comment-reply { padding: 7px 10px; background: #111118; border-radius: 5px; margin-top: 6px; }
+.watch-comment-reply p { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.watch-reply-button { margin-top: 3px; }
+.watch-reply-form { margin-top: 8px; }
+.discover-comment-replies { margin-inline-start: 10px; padding-inline-start: 10px; border-inline-start: 2px solid #46395e; }

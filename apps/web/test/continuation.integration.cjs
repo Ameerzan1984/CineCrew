@@ -203,6 +203,9 @@ async function main() {
       const initialComments = await request(`films/${filmId}/comments`);
       assert.equal(initialComments.status, 200); assert.deepEqual(initialComments.body.comments, []);
       assert.equal((await request(`films/${filmId}/comments`, "POST", { body: "Anonymous comment" })).status, 401);
+      assert.equal((await request(`films/${filmId}/comments`, "POST", { body: "Anonymous reply", parentCommentId: randomUUID() })).status, 401,
+        "Replies require the same authenticated account as top-level comments");
+      assert.equal((await request(`films/${filmId}/comments`, "POST", { body: "Invalid reply", parentCommentId: "not-a-uuid" }, member.cookie)).status, 400);
       const emptyReviews = await request(`films/${filmId}/reviews`);
       assert.equal(emptyReviews.status, 200); assert.equal(emptyReviews.body.summary.review_count, 0);
       assert.equal(emptyReviews.body.summary.average_rating, 0); assert.equal(emptyReviews.body.my_review, null);
@@ -262,8 +265,41 @@ async function main() {
       assert.equal((await request(`films/${filmId}/likes`, "POST", {}, member.cookie)).body.likes_count, 2);
       const comment = await request(`films/${filmId}/comments`, "POST", { body: "The second shot continues the first." }, member.cookie);
       assert.equal(comment.status, 201); assert.equal(comment.body.comment.author_display_name, "Second contributor");
+      assert.equal(comment.body.comment.parent_comment_id, null);
+      const reply = await request(`films/${filmId}/comments`, "POST", { body: "The movement carries through the cut.", parentCommentId: comment.body.comment.id }, owner.cookie);
+      assert.equal(reply.status, 201); assert.equal(reply.body.comment.parent_comment_id, comment.body.comment.id);
+      assert.equal((await request(`films/${filmId}/comments`, "POST", { body: "   " }, member.cookie)).status, 400);
+      assert.equal((await request(`films/${filmId}/comments`, "POST", { body: "Nested reply", parentCommentId: reply.body.comment.id }, member.cookie)).status, 404,
+        "Replies can target root comments only, preserving a bounded thread depth");
+      await assert.rejects(
+        pool.query(`INSERT INTO comments(id,film_id,author_id,body,parent_comment_id) VALUES($1,$2,$3,'Illegal nested row',$4)`,
+          [randomUUID(), filmId, member.body.id, reply.body.comment.id]),
+        /Replies must target a top-level comment/,
+        "The database trigger also rejects nested replies outside the HTTP API",
+      );
+      const foreignFilmId = randomUUID();
+      await pool.query(
+        `INSERT INTO films(id,owner_id,title,premise,genre,duration_minutes,status)
+         VALUES($1,$2,'Other public film','A separate film for reply-isolation checks.','Drama',1,'published')`,
+        [foreignFilmId, owner.body.id]);
+      const foreignRoot = await request(`films/${foreignFilmId}/comments`, "POST", { body: "Comment on a separate film." }, owner.cookie);
+      assert.equal(foreignRoot.status, 201);
+      assert.equal((await request(`films/${filmId}/comments`, "POST", { body: "Cross-film reply", parentCommentId: foreignRoot.body.comment.id }, member.cookie)).status, 404,
+        "Replies cannot cross film boundaries");
+      const persistedReply = await pool.query("SELECT parent_comment_id,author_id,body FROM comments WHERE id=$1", [reply.body.comment.id]);
+      assert.equal(persistedReply.rowCount, 1); assert.equal(persistedReply.rows[0].parent_comment_id, comment.body.comment.id);
+      assert.equal(persistedReply.rows[0].author_id, owner.body.id, "Reply authorship comes from the authenticated session");
       const publicComments = await request(`films/${filmId}/comments`);
-      assert.equal(publicComments.body.comments.length, 1); assert.equal(publicComments.body.comments[0].id, comment.body.comment.id);
+      assert.equal(publicComments.body.comments.length, 2);
+      assert.equal(publicComments.body.comments[0].id, comment.body.comment.id);
+      assert.equal(publicComments.body.comments[1].id, reply.body.comment.id);
+      assert.equal(publicComments.body.comments[1].parent_comment_id, comment.body.comment.id);
+      await pool.query("DELETE FROM comments WHERE id=$1", [comment.body.comment.id]);
+      assert.equal((await pool.query("SELECT 1 FROM comments WHERE id=$1", [reply.body.comment.id])).rowCount, 0,
+        "Deleting a root comment cascades its replies");
+      assert.equal((await request(`films/${filmId}/comments`, "GET")).body.comments.length, 0);
+      const reopenedRoot = await request(`films/${filmId}/comments`, "POST", { body: "Restored test root." }, member.cookie);
+      assert.equal(reopenedRoot.status, 201);
       const memberDelete = await request(`films/${filmId}/reviews`, "DELETE", {}, member.cookie);
       assert.equal(memberDelete.status, 200); assert.equal(memberDelete.body.summary.review_count, 1);
       const afterMemberDelete = await request(`films/${filmId}/reviews`);

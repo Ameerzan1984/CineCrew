@@ -4,7 +4,7 @@ import path from "node:path";
 import { Pool } from "pg";
 import { expect, test } from "@playwright/test";
 
-test("a published film review persists and can be edited or removed on desktop and mobile", async ({ page }) => {
+test("a published film supports persistent threaded comments and reviews on desktop and mobile", async ({ page }) => {
   const databaseUrl = process.env.CINEMESH_TEST_DATABASE_URL;
   test.skip(!databaseUrl, "Requires the disposable PostgreSQL database used by the CineMesh E2E app");
 
@@ -69,6 +69,30 @@ test("a published film review persists and can be edited or removed on desktop a
     await openFilm();
     await expect(page.locator(".watch-review-summary strong")).toHaveText("0.0");
     await expect(page.getByText("No reviews yet.")).toBeVisible();
+
+    await page.getByLabel("Write a comment").fill("The last shot leaves one question open.");
+    await page.getByRole("button", { name: "Post comment" }).click();
+    await expect(page.locator(".watch-comments")).toContainText("The last shot leaves one question open.");
+    const rootComment = await pool.query(
+      "SELECT id,parent_comment_id,author_id FROM comments WHERE film_id=$1 AND body=$2",
+      [filmId, "The last shot leaves one question open."],
+    );
+    expect(rootComment.rowCount).toBe(1);
+    expect(rootComment.rows[0].parent_comment_id).toBeNull();
+    await page.getByRole("button", { name: "Reply" }).click();
+    await page.getByLabel("Write a reply").fill("It implies that the next scene starts there.");
+    await page.getByRole("button", { name: "Post reply" }).click();
+    await expect(page.locator(".watch-comment-replies")).toContainText("It implies that the next scene starts there.");
+    const savedReply = await pool.query(
+      "SELECT id,parent_comment_id,author_id FROM comments WHERE film_id=$1 AND body=$2",
+      [filmId, "It implies that the next scene starts there."],
+    );
+    expect(savedReply.rowCount).toBe(1);
+    expect(savedReply.rows[0].parent_comment_id).toBe(rootComment.rows[0].id);
+    expect(savedReply.rows[0].author_id).toBe(userId);
+    await page.reload();
+    await openFilm();
+    await expect(page.locator(".watch-comment-replies")).toContainText("It implies that the next scene starts there.");
 
     await page.getByRole("button", { name: "Rate 4 stars" }).click();
     await page.getByLabel("Write a review").fill("The second shot makes the reveal feel earned.");
