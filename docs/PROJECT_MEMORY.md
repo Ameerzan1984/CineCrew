@@ -17,11 +17,15 @@ CineMesh شبكة اجتماعية واستوديو لإنتاج الأفلام 
 - يجب صون CineCrew الأصلي وترخيص Apache-2.0 ونسب المصدر. مكونات CineMesh تجريبية.
 - التجارب ووسائطها المحلية موجودة ضمن `data/` و`apps/web/.data/`؛ هذه المسارات مستثناة من Git. لا ترفع الوسائط أو الأسرار أو ملفات `.env`.
 
-## Worker lease hardening (2026-10-31; pending hosted CI)
+## Worker lease hardening (2026-10-31; hosted CI passed)
 
-The current working change adds `renew_lease`, and requires the matching running job's lease to remain valid before renewal, finish, or failure. A review found that time predicates placed in a row-locking query could be evaluated before PostgreSQL waits on another transaction. The implementation now locks the job row first, then checks expiry against `clock_timestamp()` while holding the lock. A new PostgreSQL integration test deliberately holds that lock until the lease expires and expects renewal to fail as stale.
+The current working change adds `renew_lease`, and requires the matching running job's lease to remain valid before renewal, finish, or failure. A review found that time predicates placed in a row-locking query could be evaluated before PostgreSQL waits on another transaction. The implementation now locks the job row first, then checks expiry against `clock_timestamp()` while holding the lock. A PostgreSQL integration test deliberately holds three job-row locks until their leases expire and expects renewal, finish, and fail to reject the stale lease.
 
-Local verification so far: worker module compilation passed, three pure scheduling-policy tests passed, and `git diff --check` passed. Full worker test collection cannot run in this local Python environment because `fastapi.testclient` is unavailable; there is no local PostgreSQL service. The expiry race integration test therefore still needs hosted CI. This is a scheduler safety primitive only: no provider worker, gateway dispatch, or live generation was added.
+Local verification: worker module compilation passed, three pure scheduling-policy tests passed, and `git diff --check` passed. Full worker test collection cannot run in this local Python environment because `fastapi.testclient` is unavailable; there is no local PostgreSQL service. Hosted push run [41213190169](https://github.com/Ameerzan1984/CineCrew/actions/runs/41213190169) and PR run [41213194279](https://github.com/Ameerzan1984/CineCrew/actions/runs/41213194279) passed: 15 Film Engine tests, all 12 generation-worker tests including the PostgreSQL lock-wait regression, the render-worker test, and all 12 desktop/mobile E2E cases. Earlier runs failed in test setup/lock-wait detection and were corrected before these passing runs. This is a scheduler safety primitive only: no provider worker, gateway dispatch, or live generation was added.
+
+## Discover catalog search (2026-10-31; hosted CI pending)
+
+Discover now sends a debounced, cancellable search request to the API. PostgreSQL filters across title, premise, genre and filmmaker name while retaining public-only and saved-render constraints; filtering happens before the 60-row limit, so older matching catalog entries remain searchable. New continuation cases exercise these filters, length limits and exclusion cases. The browser test covers a real published fixture and an empty search result on desktop/mobile. Local web unit (31), TypeScript, build, continuation syntax and Playwright discovery (14 tests) passed. PostgreSQL and E2E execution is still pending hosted CI. No provider call was added.
 
 ## ما ثبت أنه يعمل
 

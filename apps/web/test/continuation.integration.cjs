@@ -64,6 +64,8 @@ async function main() {
     assert.equal(film.status, 201);
     const filmId = film.body.id;
     assert.equal((await request("discover")).body.films.some(item => item.id === filmId), false);
+    assert.equal((await request(`discover?q=${encodeURIComponent("Continuation test")}`)).body.films.some(item => item.id === filmId), false,
+      "Search never exposes a matching draft film");
     assert.equal((await request(`watch/${filmId}`)).status, 404, "Draft films are not publicly watchable");
     assert.equal((await request(`films/${filmId}/reviews`)).status, 404, "Draft film reviews are not publicly visible");
     assert.equal((await request(`films/${filmId}/reviews`, "PUT", { rating: 5, body: "Draft review" }, owner.cookie)).status, 404,
@@ -267,6 +269,33 @@ async function main() {
       assert.equal(profileFollow.status, 200);
       const followedProfile = await request(`profiles/${owner.body.id}`, "GET", undefined, member.cookie);
       assert.equal(followedProfile.body.profile.following, true); assert.equal(followedProfile.body.profile.followers, 1);
+      for (const term of ["Continuation test", "Two contributors create consecutive shots", "Drama", "First contributor", "cOnTiNuAtIoN TEST"]) {
+        const search = await request(`discover?q=${encodeURIComponent(term)}`);
+        assert.equal(search.status, 200, `Discover search accepts ${term}`);
+        assert.ok(search.body.films.some(item => item.id === filmId), `Discover finds the film by title, premise, genre, owner, and without case sensitivity: ${term}`);
+      }
+      assert.equal((await request(`discover?q=${encodeURIComponent("x".repeat(101))}`)).status, 400,
+        "Discover bounds search input before querying PostgreSQL");
+
+      const catalogIds = Array.from({ length: 61 }, () => randomUUID());
+      const catalogMediaIds = Array.from({ length: 61 }, () => randomUUID());
+      await pool.query(`INSERT INTO films(id,owner_id,title,premise,genre,duration_minutes,status,updated_at)
+        SELECT film_id,$1,'Unrelated search filler '||ordinal::text,'Unrelated catalog entry','Drama',1,'published',now()+(ordinal*interval '1 second')
+        FROM unnest($2::uuid[]) WITH ORDINALITY AS seed(film_id,ordinal)`, [owner.body.id, catalogIds]);
+      await pool.query(`INSERT INTO media_assets(id,film_id,kind,storage_key,mime_type,size_bytes,sha256,created_by)
+        SELECT asset_id,film_id,'film_render','catalog-search/'||asset_id::text||'.mp4','video/mp4',1,repeat('a',64),$3
+        FROM unnest($1::uuid[]) WITH ORDINALITY AS films(film_id,ordinal)
+        JOIN unnest($2::uuid[]) WITH ORDINALITY AS assets(asset_id,ordinal) USING(ordinal)`, [catalogIds, catalogMediaIds, owner.body.id]);
+      const olderPublishedSearch = await request(`discover?q=${encodeURIComponent("Continuation test")}`);
+      assert.ok(olderPublishedSearch.body.films.some(item => item.id === filmId),
+        "Search filters the full published catalog before applying the 60-film result limit");
+      const missingRenderId = randomUUID();
+      await pool.query(`INSERT INTO films(id,owner_id,title,premise,genre,duration_minutes,status,updated_at)
+        VALUES($1,$2,'Unrendered search sentinel','This published row has no saved media','Drama',1,'published',now()+interval '62 seconds')`,
+        [missingRenderId, owner.body.id]);
+      const missingRenderSearch = await request(`discover?q=${encodeURIComponent("Unrendered search sentinel")}`);
+      assert.equal(missingRenderSearch.body.films.some(item => item.id === missingRenderId), false,
+        "A published database row without a saved render is excluded from search");
       const watchPage = await request(`watch/${filmId}`);
       assert.equal(watchPage.status, 200); assert.equal(watchPage.body.film.media_asset_id, renderId);
       assert.equal(watchPage.body.contributors.length, 2, "Watch details list the filmmaker and film contributors");
@@ -310,7 +339,7 @@ async function main() {
         assert.equal((await request("admin/reports", "POST", { reportId: filmReport.id, action: "hide_film" }, moderationAdmin.cookie, "http://invalid.example")).status, 403,
           "Moderation actions enforce request origin");
         assert.equal((await request("admin/reports", "POST", { reportId: filmReport.id, action: "hide_film", note: "Policy review." }, moderationAdmin.cookie)).status, 200);
-        assert.equal((await request("discover")).body.films.some(item => item.id === filmId), false);
+        assert.equal((await request(`discover?q=${encodeURIComponent("Continuation test")}`)).body.films.some(item => item.id === filmId), false);
         assert.equal((await request(`watch/${filmId}`)).status, 404);
         assert.equal((await request(`films/${filmId}/reviews`)).status, 404, "Moderated films hide their review list");
         assert.equal((await request(`films/${filmId}/reviews`, "PUT", { rating: 2, body: "Hidden film review" }, member.cookie)).status, 404,
@@ -324,7 +353,7 @@ async function main() {
         assert.equal(deniedRepublish.status, 409);
         assert.match(deniedRepublish.body.error, /moderator/i);
         assert.equal((await request("admin/reports", "POST", { reportId: filmReport.id, action: "restore_film", note: "Reviewed and restored." }, moderationAdmin.cookie)).status, 200);
-        assert.equal((await request("discover")).body.films.some(item => item.id === filmId), true);
+        assert.equal((await request(`discover?q=${encodeURIComponent("Continuation test")}`)).body.films.some(item => item.id === filmId), true);
         assert.equal((await request(`films/${filmId}/reviews`)).body.summary.review_count, 2, "Restoring a film makes its saved reviews visible again");
         assert.equal((await request(`lists/${publicList.body.list.id}`)).body.items.length, 1,
           "Restoring a film makes its list entry visible again");
@@ -386,7 +415,7 @@ async function main() {
       assert.equal((await request(`films/${filmId}/publish`, "POST", { action: "unpublish" }, owner.cookie)).body.status, "draft");
       assert.equal((await request(`lists/${publicList.body.list.id}`)).body.items.length, 0,
         "Unpublished film list entries are hidden while the film is private");
-      assert.equal((await request("discover")).body.films.some(item => item.id === filmId), false);
+      assert.equal((await request(`discover?q=${encodeURIComponent("Continuation test")}`)).body.films.some(item => item.id === filmId), false);
       assert.equal((await fetch(`${base}/api/media/${renderId}`)).status, 404, "Unpublishing removes public render access");
       assert.equal((await request(`films/${filmId}/comments`)).body.comments.length, 0, "Unpublished films no longer expose comments");
       assert.equal((await request(`films/${filmId}/reviews`)).status, 404, "Unpublished films no longer expose ratings or reviews");

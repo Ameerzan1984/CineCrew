@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { currentUser } from "../../../lib/auth";
 import { database } from "../../../lib/db";
 
@@ -8,7 +9,10 @@ export const dynamic = "force-dynamic";
 const json = (value: unknown, status = 200) =>
   NextResponse.json(value, { status, headers: { "Cache-Control": "no-store" } });
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const query = request.nextUrl.searchParams.get("q")?.trim() ?? "";
+  if (query.length > 100) return json({ error: "Search query must be 100 characters or fewer" }, 400);
+  const pattern = query ? `%${query.replace(/[\\%_]/g, "\\$&")}%` : null;
   try {
     const user = await currentUser();
     const result = await database().query(
@@ -28,9 +32,11 @@ export async function GET() {
          ORDER BY a.created_at DESC,a.id DESC LIMIT 1
        ) render ON true
        WHERE f.status='published' AND f.moderation_hidden_at IS NULL
+         AND ($2::text IS NULL OR f.title ILIKE $2 OR f.premise ILIKE $2
+              OR f.genre ILIKE $2 OR owner.display_name ILIKE $2)
        ORDER BY f.updated_at DESC,f.id DESC
        LIMIT 60`,
-      [user?.id ?? null],
+      [user?.id ?? null, pattern],
     );
     return json({ films: result.rows });
   } catch {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 type PublishedFilm = {
@@ -34,25 +34,33 @@ export default function Discover({ ar, onSignIn, onOpenProfile, onOpenFilm }: { 
   const [busyFilms, setBusyFilms] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/discover", { cache: "no-store" })
-      .then(async response => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Discover is unavailable");
-        return data as { films: PublishedFilm[] };
-      })
-      .then(data => { if (!cancelled) setFilms(data.films); })
-      .catch(cause => { if (!cancelled) setError((cause as Error).message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
+    const controller = new AbortController();
+    const normalized = query.trim();
+    setLoading(true);
+    setError("");
+    const timer = window.setTimeout(() => {
+      const suffix = normalized ? `?${new URLSearchParams({ q: normalized })}` : "";
+      fetch(`/api/discover${suffix}`, { cache: "no-store", signal: controller.signal })
+        .then(async response => {
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Discover is unavailable");
+          return data as { films: PublishedFilm[] };
+        })
+        .then(data => setFilms(data.films))
+        .catch(cause => {
+          if ((cause as Error).name !== "AbortError") setError((cause as Error).message);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query]);
 
-  const visibleFilms = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase(ar ? "ar" : "en");
-    if (!normalized) return films;
-    return films.filter(film => [film.title, film.premise, film.genre, film.owner_display_name]
-      .some(value => value.toLocaleLowerCase(ar ? "ar" : "en").includes(normalized)));
-  }, [ar, films, query]);
+  const visibleFilms = films;
 
   function setMessage(filmId: string, message: string) {
     setSocialMessages(current => ({ ...current, [filmId]: message }));
@@ -114,7 +122,7 @@ export default function Discover({ ar, onSignIn, onOpenProfile, onOpenFilm }: { 
     {loading && <p role="status">{ar ? "\u062c\u0627\u0631\u064d \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0623\u0641\u0644\u0627\u0645\u2026" : "Loading published films\u2026"}</p>}
     {error && <p role="alert">{error}</p>}
     {!loading && !error && visibleFilms.length === 0 && <div className="empty">
-      <p>{films.length === 0
+      <p>{!query.trim()
         ? (ar ? "\u0644\u0627 \u062a\u0648\u062c\u062f \u0623\u0641\u0644\u0627\u0645 \u0645\u0646\u0634\u0648\u0631\u0629 \u0628\u0639\u062f." : "No films have been published yet.")
         : (ar ? "\u0644\u0627 \u062a\u0637\u0627\u0628\u0642 \u0623\u0641\u0644\u0627\u0645 \u0645\u0646\u0634\u0648\u0631\u0629 \u0628\u062d\u062b\u0643." : "No published films match your search.")}</p>
     </div>}
