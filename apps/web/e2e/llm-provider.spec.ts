@@ -20,7 +20,7 @@ test("studio explicitly selects and consents to a synthetic OpenAI API run", asy
   await page.getByLabel("Email").fill(`llm-consent-${randomUUID()}@example.test`);
   await page.getByLabel("Password (at least 12 characters)").fill("disposable-llm-consent-password-123");
   await page.getByRole("button", { name: "Create account" }).click();
-  await page.getByRole("button", { name: "Create a film" }).click();
+  await page.locator("section").getByRole("button", { name: "Create a film" }).click();
   const form = page.locator("form.create-modal");
   await form.getByLabel("Film title").fill("Synthetic language provider test");
   await form.getByLabel("Your story idea").fill("A lighthouse keeper follows a signal through a storm.");
