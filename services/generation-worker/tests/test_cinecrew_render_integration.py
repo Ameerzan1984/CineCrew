@@ -350,9 +350,9 @@ def test_cinecrew_jobs_run_for_two_contributors_and_render_from_private_refs(pg_
                 row = cursor.fetchone()
                 assert row["status"] == "completed"
                 assert row["shot_id"] == job.shot_id
-                assert row["owner_id"] == task.resource_owner_id
-                assert row["resource_id"] == task.resource_id
-                assert row["owner_id"] == owner_by_resource[row["resource_id"]]
+                assert str(row["owner_id"]) == task.resource_owner_id
+                assert str(row["resource_id"]) == task.resource_id
+                assert str(row["owner_id"]) == owner_by_resource[str(row["resource_id"])]
                 expected_ref = f"projects/{project}/jobs/{outcome.job_id}/result"
                 assert row["result_ref"] == expected_ref
                 ordered_refs.append(row["result_ref"])
