@@ -24,6 +24,8 @@ test("Connections searches and shows synthetic MCP tool schemas", async ({ page 
   if (testInfo.project.name.startsWith("mobile")) await page.getByLabel("Navigation").selectOption("settings");
   else await page.getByRole("button", { name: "Connections" }).click();
 
+  await expect(page.getByRole("heading", { name: "How CineMesh connections fit together" })).toBeVisible();
+  await expect(page.getByText("MCP video submission is not enabled", { exact: false })).toBeVisible();
   await page.getByText("Browse MCP tools and input schemas").click();
   await page.getByRole("searchbox", { name: "Search tool names and descriptions" }).fill("script");
   await page.getByText("text_example", { exact: true }).click();

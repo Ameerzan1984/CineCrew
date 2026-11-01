@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import SchedulerProgress from "./SchedulerProgress";
 
 type Scene = { id: string; position: number; title: string; description: string; agent_job_id: string | null; agent_prompt: string | null; agent_planned_duration_seconds: number | null; agent_generation_duration_seconds: number | null; creator_name: string | null; mine: boolean; claimable: boolean };
 type Character = { id: string; name: string; description: string; asset_id: string | null };
@@ -231,6 +232,7 @@ export default function Production({ filmId, ar, status, onPublicationChange }: 
 
   return <>
   <div className="production-sections">
+    <SchedulerProgress filmId={filmId} ar={ar} />
     <div className="settings-card" role="status">
       <h3>{ar ? "حسابات المساهمين في Higgsfield" : "Contributors’ Higgsfield accounts"}</h3>
       <p>{ar ? "يمكن لكل مساهم محاولة ربط حسابه من الاتصالات عبر MCP. ربط الحساب وتوليد فيديو منه داخل CineMesh لم يُختبرا مع مستخدمين حقيقيين بعد. زر التوليد عبر API أدناه مسار منفصل يتطلب مفتاح API ورصيد API خاصين بالمساهم." : "Each contributor can connect their own account through MCP in Connections. Account linking and generation through it have not yet been verified with real CineMesh users. The API generation button below is a separate path requiring that contributor’s API key and API balance."}</p>

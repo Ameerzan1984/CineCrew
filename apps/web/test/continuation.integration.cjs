@@ -33,6 +33,18 @@ async function main() {
     const member = await request("auth/register", "POST", { name: "Second contributor", email: memberEmail, password });
     assert.equal(owner.status, 201); assert.ok(owner.cookie);
     assert.equal(member.status, 201); assert.ok(member.cookie);
+    const syntheticLlmKey = `test-llm-credential-${suffix}-${suffix}`;
+    assert.equal((await request("connections/llm")).status, 401, "LLM settings require authentication");
+    assert.equal((await request("connections/llm", "POST", { action: "save", apiKey: syntheticLlmKey }, owner.cookie, "http://invalid.example")).status, 403);
+    assert.equal((await request("connections/llm", "POST", { action: "save", apiKey: syntheticLlmKey }, owner.cookie)).status, 200);
+    const ownerLlm = await request("connections/llm", "GET", undefined, owner.cookie);
+    const memberLlm = await request("connections/llm", "GET", undefined, member.cookie);
+    assert.equal(ownerLlm.body.configured, true); assert.equal(memberLlm.body.configured, false);
+    assert.equal(JSON.stringify(ownerLlm.body).includes(syntheticLlmKey), false, "The LLM credential is not returned to its owner or other users");
+    await request("connections/llm", "POST", { action: "disconnect" }, member.cookie);
+    assert.equal((await request("connections/llm", "GET", undefined, owner.cookie)).body.configured, true, "Another user cannot remove the owner's LLM key");
+    const llmCipher = await pool.query("SELECT encrypted_credentials FROM llm_api_connections WHERE user_id=$1 AND provider='openai_api'", [owner.body.id]);
+    assert.equal(llmCipher.rowCount, 1); assert.equal(llmCipher.rows[0].encrypted_credentials.includes(syntheticLlmKey), false);
     let moderationAdmin;
     const adminEmail = "cinemesh-ci-admin@example.test";
     if ((process.env.CINEMESH_ADMIN_EMAILS || "").split(",").map(value => value.trim().toLowerCase()).includes(adminEmail)) {
@@ -63,6 +75,18 @@ async function main() {
     const film = await request("films", "POST", { title: "Continuation test", premise: "Two contributors create consecutive shots.", genre: "Drama", duration_minutes: 1, mode: "collaborative" }, owner.cookie);
     assert.equal(film.status, 201);
     const filmId = film.body.id;
+    const noLlmConsentRun = randomUUID();
+    assert.equal((await request(`films/${filmId}/agents/story-editor`, "POST", {
+      film_idea: "A keeper discovers a strange light in the storm.", run_id: noLlmConsentRun,
+      provider: "openai_api", model: "synthetic-model", llm_cost_consent: false,
+    }, owner.cookie)).status, 400, "OpenAI API runs reject missing explicit consent before any provider call");
+    assert.equal((await pool.query("SELECT 1 FROM film_agent_runs WHERE run_id=$1", [noLlmConsentRun])).rowCount, 0);
+    assert.equal((await request(`films/${filmId}/scheduler`)).status, 401, "Scheduler progress requires a session");
+    assert.equal((await request(`films/${filmId}/scheduler`, "GET", undefined, member.cookie)).status, 404,
+      "A non-member cannot read scheduler progress");
+    const ownerScheduler = await request(`films/${filmId}/scheduler`, "GET", undefined, owner.cookie);
+    const schedulerConfigured = !!process.env.GENERATION_SCHEDULER_URL && !!process.env.GENERATION_SERVICE_TOKEN;
+    assert.equal(ownerScheduler.status, schedulerConfigured ? 200 : 503);
     assert.equal((await request("discover")).body.films.some(item => item.id === filmId), false);
     assert.equal((await request(`discover?q=${encodeURIComponent("Continuation test")}`)).body.films.some(item => item.id === filmId), false,
       "Search never exposes a matching draft film");
@@ -115,6 +139,19 @@ async function main() {
     assert.equal(repeatedMarkRead.body.read_at, markInviteRead.body.read_at, "Mark-read is idempotent");
     assert.equal((await request("notifications", "GET", undefined, member.cookie)).body.notifications[0].read_at, markInviteRead.body.read_at);
     assert.equal((await request("collaboration/invitations", "POST", { filmId, action: "accept" }, member.cookie)).status, 200);
+    if (schedulerConfigured) {
+      const schedulerJobId = randomUUID();
+      try {
+        await pool.query(`INSERT INTO generation_jobs(id,project_id,shot_id,request_key,capability,currency,estimated_micros,max_attempts,provider_request_key)
+          VALUES($1,$2,'synthetic-shot','synthetic-progress','test-video','USD',1,1,$3)`, [schedulerJobId, filmId, randomUUID()]);
+        const progress = await request(`films/${filmId}/scheduler`, "GET", undefined, member.cookie);
+        assert.equal(progress.status, 200, "An accepted editor may read scheduler progress");
+        assert.deepEqual(progress.body.progress, { queued: 1, running: 0, uncertain: 0, completed: 0, failed: 0 });
+        assert.deepEqual(Object.keys(progress.body), ["progress"], "The browser receives counts, not worker tokens or provider credentials");
+      } finally {
+        await pool.query("DELETE FROM generation_jobs WHERE id=$1", [schedulerJobId]);
+      }
+    }
     const ownerAcceptanceInbox = await request("notifications", "GET", undefined, owner.cookie);
     assert.equal(ownerAcceptanceInbox.body.notifications.length, 1, "Accepting an invite creates a notification for its inviter");
     assert.equal(ownerAcceptanceInbox.body.notifications[0].notification_type, "invitation_accepted");

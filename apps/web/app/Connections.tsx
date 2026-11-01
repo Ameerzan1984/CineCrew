@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import McpToolCatalog from "./McpToolCatalog";
+import OpenAIConnection from "./OpenAIConnection";
 import type { McpCatalogTool } from "../lib/mcp-tool-catalog";
 
 type Status = { api: { configured: boolean; verified: boolean; verifiedAt: string | null }; mcp: { available: boolean; connected: boolean; verifiedAt: string | null; tools: McpCatalogTool[]; videoGeneration: { advertised: boolean; toolName: string | null; schemaHasParameters: boolean; fields: string[]; paramsFields: string[]; executable: boolean; reason: string }; reason: string }; models: Array<{ id: string; name: string; documented: boolean }>; jobs: Array<{ id: string; model_path: string; status: string; created_at: string; updated_at: string; scene_title: string }>; usage: unknown; balance: unknown };
@@ -85,6 +86,18 @@ export default function Connections({ ar }: { ar: boolean }) {
  }
 
  return <div className="settings-grid">
+  <section className="settings-card" aria-label={ar ? "شرح الاتصالات" : "How connections work"}>
+   <h2>{ar ? "ترتيب الاتصالات في CineMesh" : "How CineMesh connections fit together"}</h2>
+   <ol>
+    <li>{ar ? <><strong>العقل اللغوي:</strong> اختر OpenAI API أو ChatGPT Plan لتشغيل وكلاء CineCrew. هذان خياران منفصلان للغة، وفوترتهما منفصلة.</> : <><strong>Language model:</strong> choose OpenAI API or ChatGPT Plan for CineCrew agents. These are alternative text providers with separate billing.</>}</li>
+    <li>{ar ? <><strong>توليد الفيديو:</strong> Higgsfield API أو Higgsfield MCP، ولكل منهما رصيد واعتماد منفصلان.</> : <><strong>Video generation:</strong> Higgsfield API or Higgsfield MCP; each uses its own credentials and balance.</>}</li>
+    <li>{ar ? <><strong>الاستوديو:</strong> يحفظ الفيلم ويعرض تقدم الطابور. التقدم المعروض لا يعني أن Higgsfield استلم مهام توليد.</> : <><strong>Film Studio:</strong> saves the film and displays queue progress. Queue progress does not mean Higgsfield received generation jobs.</>}</li>
+   </ol>
+   <p className="connection-note" role="note">{ar
+    ? "حاليًا: اختبار MCP يقتصر على تفويض الحساب وقراءة الأدوات، وإرسال توليد فيديو عبر MCP غير مفعّل. توليد Higgsfield API متوقف حتى التحقق من طريقة تقدير السعر الرسمية. لذلك لا توجد حتى الآن سلسلة توليد فيلم حقيقية من الفكرة إلى الفيديو."
+    : "Current state: MCP checks are limited to account authorization and tool discovery; MCP video submission is not enabled. Higgsfield API generation is paused until its official price-estimate contract is verified. A real idea-to-video production run is not available yet."}</p>
+  </section>
+  <OpenAIConnection ar={ar}/>
   <div className="settings-card"><h3>Higgsfield API</h3><p>{ar ? "كل مساهم يربط حساب API الخاص به. ألصق المفتاح كاملًا كما نسخته؛ يُشفّر على الخادم ولا يُعاد للمتصفح. الحفظ وحده لا يبدأ التوليد." : "Each film contributor connects their own API account. Paste the complete key copied from Higgsfield in one field. It is encrypted on the server and never returned to the browser. Saving does not start generation."}</p><p><span className="pill">{status?.api.verified ? (ar ? "تم التحقق بطلب فعلي" : "VERIFIED BY A REAL REQUEST") : status?.api.configured ? (ar ? "المفتاح محفوظ، غير متحقق" : "API KEY SAVED, NOT VERIFIED") : (ar ? "غير متصل" : "NOT CONNECTED")}</span> {status?.api.verifiedAt && <small>{ar ? "آخر تحقق: " : "Last verified: "}{new Date(status.api.verifiedAt).toLocaleString()}</small>}</p><p className="connection-note" role="note">{ar
    ? "توثيق Higgsfield يؤكد توفر تقدير قبل التوليد، لكنه لا يحدد مسار REST وصيغة سعر USD لهذا النموذج. حفظ المفتاح لا يختبره، والتوليد المدفوع متوقف إلى أن نتحقق من عقد السعر الرسمي."
    : "Higgsfield confirms pre-generation estimates exist, but its public docs do not specify this model's exact REST route and USD response schema. Saving the key does not test it; paid generation stays disabled until the official quote contract is verified."}</p><form className="connection-form" onSubmit={submit}><label>{ar ? "مفتاح Higgsfield كاملًا" : "Complete Higgsfield API key"}<input name="apiKey" type="password" autoComplete="off" required placeholder="Paste the full key as copied"/></label><button className="primary-button" disabled={busy}>{ar ? "حفظ مفتاح API" : "Save API key"}</button></form>{status?.api.configured && <button className="text-button" disabled={busy} onClick={disconnectHiggsfield}>{ar ? "إزالة مفتاح API" : "Remove API key"}</button>}{notice && <p role="status">{notice}</p>}</div>

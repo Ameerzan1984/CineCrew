@@ -15,3 +15,9 @@ The Film Studio now contains a first persistent Timeline slice: owners can reord
 7. Scale only after measured tests: begin with a short scene, then increase shot count and duration. Record quality, continuity, cost, storage, provider failures and recovery time. Do not claim 60–120 minute film production until a full test of that size succeeds.
 
 For implementation sequence and acceptance criteria, use [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md). The developer-agent rules and CineCrew upstream conventions remain in [AGENTS.md](AGENTS.md).
+
+## Current implementation checkpoint (2026-11-01)
+
+The current work adds a selectable per-user OpenAI API language route alongside ChatGPT plan access; encrypted credential storage, model catalog discovery, run-to-provider binding and explicit per-run API billing acknowledgement are covered by offline tests. A deterministic Film Engine regression exercises the real configured CineCrew stage dispatcher, FilmDSL/VideoJobBatch creation and persistence without contacting an LLM. These tests do not prove live account access or model compatibility.
+
+The scheduler has a member-only, read-only progress gateway, and its lease-based worker can persist a local result through an optional private S3-compatible adapter before completing a job. A bilingual Connections explainer distinguishes language models, video providers and queue progress. The worker is still not connected to CineCrew VideoJobBatch or a live Higgsfield adapter; MCP schema inspection remains non-submitting; Higgsfield API generation remains blocked until the official price-estimate contract is verified. CI for this worktree is pending, and the local environment has no running PostgreSQL/app services. Current evidence is recorded in [project memory](docs/PROJECT_MEMORY.md), [experiment log](docs/EXPERIMENT_LOG.md), and [next steps](docs/NEXT_STEPS.md).

@@ -29,6 +29,13 @@ test("a member saves a film and scene order that persist after reload", async ({
 
   await expect(page.getByRole("heading", { name: `${title}.` })).toBeVisible();
   await expect(page.getByText(premise)).toBeVisible();
+  const scheduler = page.getByRole("region", { name: "Production scheduler progress" });
+  if (process.env.GENERATION_SCHEDULER_URL && process.env.GENERATION_SERVICE_TOKEN) {
+    await expect(scheduler).toContainText("Queued: 0");
+    await expect(scheduler).toContainText("provider dispatch and storage are not connected yet");
+  } else {
+    await expect(scheduler).toContainText("Scheduler service is not configured or unavailable.");
+  }
   await page.getByRole("button", { name: "My profile" }).click();
   await expect(page.getByRole("heading", { name: "CineMesh E2E Member." })).toBeVisible();
   await expect(page.getByText("This filmmaker has not published any films yet.")).toBeVisible();

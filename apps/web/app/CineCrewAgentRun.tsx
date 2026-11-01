@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 type Stage = { stage: string; agent: string; status: string; error_code: string | null };
-type SavedRun = { id: string; model: string; status: string; stage: string; error_code: string | null; created_at: string; updated_at: string; created_by_name: string; can_resume: boolean };
+type SavedRun = { id: string; model: string; provider?: "chatgpt_plan" | "openai_api"; llm_cost_consent_at?: string | null; status: string; stage: string; error_code: string | null; created_at: string; updated_at: string; created_by_name: string; can_resume: boolean };
 type CharacterAsset = {
   id: string; name: string; description: string; clothing_style?: string; voice_description?: string;
   personality?: string; backstory?: string; current_motivation?: string; scene_count?: number;
@@ -74,20 +74,27 @@ export default function CineCrewAgentRun({
   const [importNotice, setImportNotice] = useState("");
   const [models, setModels] = useState<Array<{ id: string; name: string }>>([]);
   const [model, setModel] = useState("");
-  const [connected, setConnected] = useState<boolean | null>(null);
+  const [provider, setProvider] = useState<"chatgpt_plan" | "openai_api">("chatgpt_plan");
+  const [chatgptConnected, setChatGPTConnected] = useState<boolean | null>(null);
+  const [openAIConnected, setOpenAIConnected] = useState<boolean | null>(null);
+  const [costConsent, setCostConsent] = useState(false);
   const [savedRuns, setSavedRuns] = useState<SavedRun[]>([]);
+  const connected = provider === "chatgpt_plan" ? chatgptConnected : openAIConnected;
 
   useEffect(() => {
     request("/api/connections/chatgpt")
-      .then((value) => setConnected(!!value.connected && !!value.account?.planUsageEnabled))
-      .catch(() => setConnected(false));
+      .then((value) => setChatGPTConnected(!!value.connected && !!value.account?.planUsageEnabled))
+      .catch(() => setChatGPTConnected(false));
+    request("/api/connections/llm")
+      .then((value) => setOpenAIConnected(!!value.configured && !!value.vaultReady))
+      .catch(() => setOpenAIConnected(false));
 
     savedAgentRuns(filmId).then(async (runs) => {
       setSavedRuns(runs);
       const resume = runs.find((item) => item.can_resume && (item.status === "running" || item.status === "failed"))
         ?? runs.find((item) => item.can_resume) ?? runs[0];
       if (!resume) return;
-      if (resume.can_resume) setModel(resume.model);
+      if (resume.can_resume) { setProvider(resume.provider ?? "chatgpt_plan"); setModel(resume.model); }
       try {
         const value = await request(`/api/films/${filmId}/agents/story-editor?run_id=${encodeURIComponent(resume.id)}`);
         setRun(value);
@@ -104,12 +111,12 @@ export default function CineCrewAgentRun({
     setBusy(true);
     setError("");
     try {
-      const value = await request("/api/connections/chatgpt", {
+      const value = await request(provider === "chatgpt_plan" ? "/api/connections/chatgpt" : "/api/connections/llm", {
         method: "POST",
         body: JSON.stringify({ action: "models" }),
       });
       setModels(value.models);
-      if (value.models[0]) setModel((current) => current || value.models[0].id);
+      setModel((current) => value.models.some((item: { id: string }) => item.id === current) ? current : "");
       if (!value.models.length) setError(ar ? "لا توجد نماذج متاحة لهذا الحساب." : "No models are available for this account.");
     } catch (cause) {
       setError((cause as Error).message);
@@ -127,7 +134,7 @@ export default function CineCrewAgentRun({
     try {
       const result = await request(`/api/films/${filmId}/agents/story-editor`, {
         method: "POST",
-        body: JSON.stringify({ run_id: id, film_idea: idea, model }),
+        body: JSON.stringify({ run_id: id, film_idea: idea, model, provider, llm_cost_consent: provider === "openai_api" && costConsent }),
       });
       setRun(result);
       setRunId(result.status === "running" || result.status === "failed" ? id : "");
@@ -145,6 +152,7 @@ export default function CineCrewAgentRun({
       try { setSavedRuns(await savedAgentRuns(filmId)); } catch { /* retain the current run view */ }
     } finally {
       setBusy(false);
+      setCostConsent(false);
     }
   }
 
@@ -190,7 +198,7 @@ export default function CineCrewAgentRun({
       setRun(result);
       if (result.script_segment) setIdea(result.script_segment);
       const saved = savedRuns.find((item) => item.id === id);
-      if (saved?.can_resume) setModel(saved.model);
+      if (saved?.can_resume) { setProvider(saved.provider ?? "chatgpt_plan"); setModels([]); setModel(saved.model); setCostConsent(false); }
       setRunId(saved?.can_resume && (result.status === "running" || result.status === "failed") ? id : "");
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
@@ -200,6 +208,11 @@ export default function CineCrewAgentRun({
     setIdea(value);
     setRun(null);
     setRunId("");
+    setCostConsent(false);
+  }
+
+  function changeProvider(value: "chatgpt_plan" | "openai_api") {
+    setProvider(value); setModels([]); setModel(""); setRun(null); setRunId(""); setCostConsent(false);
   }
 
   const stages = run?.stages ?? [];
@@ -217,23 +230,30 @@ export default function CineCrewAgentRun({
         <span className={`pill ${connected === false ? "muted" : ""}`}>
           {connected === null
             ? ar ? "جارٍ التحقق من الاتصال" : "CHECKING"
-            : connected ? ar ? "ChatGPT متصل" : "CHATGPT READY" : ar ? "اربط ChatGPT أولًا" : "CONNECT CHATGPT FIRST"}
+            : connected ? (provider === "chatgpt_plan" ? "CHATGPT READY" : "OPENAI API KEY SAVED") : (ar ? "اربط المزود" : "CONNECT PROVIDER")}
         </span>
       </div>
 
       {!linked && <p className="connection-note">{ar ? "اربط الفيلم بمحرك CineCrew قبل تشغيل الوكلاء." : "Link this film to CineCrew above before running agents."}</p>}
-      {connected === false && <p className="connection-note">{ar ? "افتح Connections ووافق على استخدام خطة ChatGPT." : "Open Connections and authorize CineMesh to use your ChatGPT plan."}</p>}
+      {connected === false && <p className="connection-note">{ar ? "افتح Connections واربط المزود المختار." : "Open Connections and connect the selected language provider."}</p>}
       {!canRunAgents && <p className="connection-note">{ar ? "صلاحية المشاهدة لا تسمح بتشغيل وكلاء الفيلم." : "Viewer access does not allow running film agents."}</p>}
 
       {savedRuns.length > 0 && <label className="agent-run-history">
         {ar ? "تشغيلات CineCrew المحفوظة لهذا الفيلم" : "Saved CineCrew runs for this film"}
         <select aria-label={ar ? "التشغيلات المحفوظة" : "Saved agent runs"} value={run?.id || ""} disabled={busy} onChange={(event) => void selectSavedRun(event.target.value)}>
           <option value="">{ar ? "اختر تشغيلًا محفوظًا" : "Choose a saved run"}</option>
-          {savedRuns.map((item) => <option key={item.id} value={item.id}>{item.status} · {item.created_by_name} · {item.stage} · {item.model} · {new Date(item.updated_at).toLocaleString()}</option>)}
+          {savedRuns.map((item) => <option key={item.id} value={item.id}>{item.status} · {item.created_by_name} · {item.stage} · {item.provider ?? "chatgpt_plan"} · {item.model} · {new Date(item.updated_at).toLocaleString()}</option>)}
         </select>
       </label>}
 
       <form className="agent-run-form" onSubmit={runAgent}>
+        <label>{ar ? "مزود النموذج اللغوي" : "Language provider"}
+          <select aria-label={ar ? "مزود النموذج اللغوي" : "Language provider"} value={provider} disabled={busy} onChange={event => changeProvider(event.target.value as "chatgpt_plan" | "openai_api")}>
+            <option value="chatgpt_plan">ChatGPT plan</option>
+            <option value="openai_api">OpenAI API</option>
+          </select>
+        </label>
+        <p className="connection-note">{ar ? "نموذج Higgsfield اللغوي غير متاح من الخادم المستقل حتى يتوفر مسار رسمي معتمد." : "Higgsfield LLM is unavailable from the standalone server until an approved official path exists."}</p>
         <label>
           {ar ? "فكرة الفيلم" : "Film idea"}
           <textarea
@@ -244,7 +264,7 @@ export default function CineCrewAgentRun({
           />
         </label>
         <div className="agent-run-controls">
-          <select aria-label={ar ? "النموذج" : "Model"} value={model} onChange={(event) => setModel(event.target.value)} disabled={!linked || !canRunAgents}>
+          <select aria-label={ar ? "النموذج" : "Model"} value={model} onChange={(event) => { setModel(event.target.value); setCostConsent(false); }} disabled={!linked || !canRunAgents}>
             <option value="">{ar ? "حمّل النماذج المتاحة" : "Load your available models"}</option>
             {model && !models.some((item) => item.id === model) && <option value={model}>{ar ? `النموذج المحفوظ: ${model}` : `Saved model: ${model}`}</option>}
             {models.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
@@ -252,10 +272,12 @@ export default function CineCrewAgentRun({
           <button type="button" className="outline-button" disabled={busy || !connected || !linked || !canRunAgents} onClick={refreshModels}>
             {ar ? "تحديث النماذج" : "Refresh models"}
           </button>
-          <button className="primary-button" disabled={busy || !connected || !linked || !canRunAgents || !model}>
+          <button className="primary-button" disabled={busy || !connected || !linked || !canRunAgents || !model || (provider === "openai_api" && !costConsent)}>
             {busy ? ar ? "الوكلاء يعملون..." : "Running agents..." : ar ? "اكتب السيناريو وشغّل CineCrew" : "Write screenplay and run CineCrew"}
           </button>
         </div>
+        {provider === "openai_api" && <label><input type="checkbox" checked={costConsent} onChange={event => setCostConsent(event.target.checked)} />
+          {ar ? "أوافق على إرسال طلبات مدفوعة متعددة إلى حساب OpenAI API الخاص بي. تختلف التكلفة حسب النموذج والاستخدام، ولا يوجد هنا سقف مضمون." : "I approve multiple potentially billed requests to my OpenAI API account. Cost varies by model and usage; no spending cap is guaranteed here."}</label>}
       </form>
 
       {run?.status === "completed" && run.output && (

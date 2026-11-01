@@ -94,6 +94,11 @@ class JobCreate(BaseModel):
 Actor = Annotated[UUID, Header(alias='X-Cinemesh-Actor')]
 
 
+@app.get('/health')
+def health():
+    return {'status': 'ok'}
+
+
 def existing_actor(actor):
     with connect_db() as conn, conn.cursor() as cur:
         cur.execute('SELECT id FROM users WHERE id=%s', (actor,))

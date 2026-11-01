@@ -12,10 +12,12 @@ try {
   $serviceBytes = New-Object byte[] 32
   $vaultBytes = New-Object byte[] 32
   $providerVaultBytes = New-Object byte[] 32
+  $llmVaultBytes = New-Object byte[] 32
   $rng.GetBytes($passwordBytes)
   $rng.GetBytes($serviceBytes)
   $rng.GetBytes($vaultBytes)
   $rng.GetBytes($providerVaultBytes)
+  $rng.GetBytes($llmVaultBytes)
 } finally {
   $rng.Dispose()
 }
@@ -24,6 +26,7 @@ $password = [BitConverter]::ToString($passwordBytes).Replace("-", "").ToLowerInv
 $serviceToken = [Convert]::ToBase64String($serviceBytes).TrimEnd("=").Replace("+", "-").Replace("/", "_")
 $vaultKey = [Convert]::ToBase64String($vaultBytes)
 $providerVaultKey = [Convert]::ToBase64String($providerVaultBytes)
+$llmVaultKey = [Convert]::ToBase64String($llmVaultBytes)
 $lines = @(
   "POSTGRES_PASSWORD=$password"
   "DATABASE_URL=postgresql://cinemesh:$password@postgres:5432/cinemesh"
@@ -31,6 +34,7 @@ $lines = @(
   "APP_ORIGIN=http://localhost:3000"
   "CHATGPT_VAULT_KEY=$vaultKey"
   "HIGGSFIELD_VAULT_KEY=$providerVaultKey"
+  "LLM_VAULT_KEY=$llmVaultKey"
 )
 [System.IO.File]::WriteAllLines($envPath, $lines, [System.Text.UTF8Encoding]::new($false))
-Write-Output "Created a private local .env with fresh database, service, and separate ChatGPT/Higgsfield vault keys. Values were not displayed."
+Write-Output "Created a private local .env with fresh database, service, and separate provider vault keys. Values were not displayed."

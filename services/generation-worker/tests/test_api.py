@@ -45,3 +45,12 @@ def test_service_token_and_project_membership_are_both_required(pg_scheduler, mo
 def test_service_is_closed_when_token_is_unconfigured(monkeypatch):
     monkeypatch.delenv('GENERATION_SERVICE_TOKEN', raising=False)
     assert TestClient(api.app).get('/projects/a/progress').status_code == 503
+
+
+def test_health_requires_the_internal_service_token(monkeypatch):
+    monkeypatch.setenv('GENERATION_SERVICE_TOKEN', 'integration-test-token')
+    client = TestClient(api.app)
+    assert client.get('/health').status_code == 401
+    result = client.get('/health', headers={'X-Cinemesh-Service-Token': 'integration-test-token'})
+    assert result.status_code == 200
+    assert result.json() == {'status': 'ok'}

@@ -7,6 +7,7 @@ Configure these server environment variables without committing secrets:
 - `DATABASE_URL`: PostgreSQL URL for a dedicated CineMesh database.
 - `FILM_ENGINE_URL`: private server-to-server film engine URL.
 - `FILM_ENGINE_SERVICE_TOKEN`: the strong secret also configured on the engine.
+- `GENERATION_SCHEDULER_URL` and `GENERATION_SERVICE_TOKEN`: optional private scheduler service URL and matching server-only secret. When configured, Film Studio reads aggregate job counts for an authorized film member. This read-only gateway cannot enqueue work or access provider credentials; the scheduler service must remain private.
 - `APP_ORIGIN`: exact browser origin, such as the scheme and host. Required in production, and must match the configured public HTTPS origin when running behind a reverse proxy. For a local HTTP test, explicitly use a loopback origin such as `http://127.0.0.1:3000`.
 - `HIGGSFIELD_VAULT_KEY`: base64-encoded 32-byte key for encrypted Higgsfield API credentials and MCP OAuth tokens. Back this up separately from the database. Changing it without re-encrypting stored records makes those credentials unreadable.
 - `CINEMESH_MEDIA_DIR`: private persistent media directory. It defaults to `apps/web/.data/media` for local runs; Compose mounts a named volume at `/data/media`. Deployments with multiple web replicas need shared object storage instead of per-container disks.

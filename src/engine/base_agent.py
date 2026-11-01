@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Type
 import jinja2
 
 from ..utils import get_llm_client, generate_structured_data
+from ..utils.openai_api_session import current_openai_api_session
 from ..utils.types import LLMResult, TokenUsage
 from ..utils.agent_trace import (
     _ensure_trace_id,
@@ -46,6 +47,8 @@ def _resolve_schema(schema_path: str) -> Type:
 def _describe_error(e: BaseException) -> str:
     """Error text for the trace: instructor wraps the real failure (429, timeout, schema) in
     InstructorRetryException('<failed_attempts>'), so walk the cause chain."""
+    if current_openai_api_session() is not None:
+        return type(e).__name__
     parts, seen = [], 0
     cur: Optional[BaseException] = e
     while cur is not None and seen < 5:

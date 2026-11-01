@@ -19,7 +19,7 @@ export async function GET(_request: Request, context: Context) {
        WHERE f.id=$1 AND (f.owner_id=$2 OR c.role='editor')`, [id,user.id]);
     if (!access.rows[0]) return json({ error: "Film not found" }, 404);
     const result = await database().query(
-      `SELECT r.run_id AS id,r.model,r.status,r.stage,r.error_code,r.created_at,r.updated_at,
+      `SELECT r.run_id AS id,r.model,r.provider,r.llm_cost_consent_at,r.status,r.stage,r.error_code,r.created_at,r.updated_at,
               r.created_by,u.display_name AS created_by_name,(r.created_by=$2) AS can_resume
        FROM films f
        JOIN film_agent_runs r ON r.film_id=f.id

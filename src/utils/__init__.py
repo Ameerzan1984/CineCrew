@@ -6,6 +6,7 @@
 # LLM utilities
 import base64
 import mimetypes
+import os
 import time
 from pathlib import Path
 from typing import List, Optional
@@ -15,6 +16,7 @@ from openai import AzureOpenAI, OpenAI
 from ..config import Config
 from .types import LLMResult, TokenUsage
 from .chatgpt_plan import ChatGPTPlanClient, current_chatgpt_plan_session
+from .openai_api_session import current_openai_api_session
 
 
 def get_llm_client():
@@ -27,8 +29,17 @@ def get_llm_client():
     `instructor` in JSON mode turns Pydantic schemas into validated responses.
     """
     plan_session = current_chatgpt_plan_session()
+    api_session = current_openai_api_session()
+    if plan_session and api_session:
+        raise RuntimeError("Only one language provider can be active per run")
     if plan_session:
         return ChatGPTPlanClient(plan_session[0], plan_session[1], timeout=Config.LLM_TIMEOUT)
+    if api_session:
+        # Do not send a user's API key to an environment-configured alternate host.
+        if os.environ.get("OPENAI_BASE_URL") is not None:
+            raise RuntimeError("OPENAI_BASE_URL must be unset for the OpenAI API provider")
+        client = OpenAI(api_key=api_session.api_key, timeout=Config.LLM_TIMEOUT, max_retries=0)
+        return instructor.from_openai(client, mode=instructor.Mode.JSON)
     if not Config.LLM_API_KEY:
         raise RuntimeError(
             "No LLM API key configured. Set LLM_API_KEY (or OPENAI_API_KEY) in your "
@@ -90,10 +101,11 @@ def generate_structured_data(
     else:
         user_msg = {"role": "user", "content": user_content}
     messages = [{"role": "system", "content": system_prompt}, user_msg]
+    api_session = current_openai_api_session()
     kwargs = dict(
         response_model=model_class,
         messages=messages,
-        model=model or Config.LLM_MODEL,
+        model=api_session.model if api_session else model or Config.LLM_MODEL,
         max_retries=Config.LLM_MAX_RETRIES,
         max_completion_tokens=Config.LLM_MAX_COMPLETION_TOKENS,
     )

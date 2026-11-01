@@ -41,6 +41,7 @@ jobs:
       APP_ORIGIN: http://127.0.0.1:3000
       CHATGPT_REDIRECT_URI: http://127.0.0.1:3000/api/connections/chatgpt/callback
       FILM_ENGINE_URL: http://127.0.0.1:8001
+      GENERATION_SCHEDULER_URL: http://127.0.0.1:8002
       NEXT_TELEMETRY_DISABLED: "1"
 
     steps:
@@ -73,15 +74,21 @@ jobs:
         shell: bash
         run: |
           engine_token="$(openssl rand -hex 32)"
+          scheduler_token="$(openssl rand -hex 32)"
           chatgpt_vault_key="$(openssl rand -base64 32 | tr -d '\n')"
           higgsfield_vault_key="$(openssl rand -base64 32 | tr -d '\n')"
+          llm_vault_key="$(openssl rand -base64 32 | tr -d '\n')"
           echo "::add-mask::$engine_token"
+          echo "::add-mask::$scheduler_token"
           echo "::add-mask::$chatgpt_vault_key"
           echo "::add-mask::$higgsfield_vault_key"
+          echo "::add-mask::$llm_vault_key"
           {
             echo "FILM_ENGINE_SERVICE_TOKEN=$engine_token"
+            echo "GENERATION_SERVICE_TOKEN=$scheduler_token"
             echo "CHATGPT_VAULT_KEY=$chatgpt_vault_key"
             echo "HIGGSFIELD_VAULT_KEY=$higgsfield_vault_key"
+            echo "LLM_VAULT_KEY=$llm_vault_key"
             echo "CINEMESH_ENGINE_DB=$RUNNER_TEMP/cinemesh-film-engine.sqlite3"
             echo "CINEMESH_MEDIA_DIR=$RUNNER_TEMP/cinemesh-media"
           } >> "$GITHUB_ENV"
@@ -129,6 +136,18 @@ jobs:
             sleep 1
           done
           if [ "$ready" != true ]; then cat "$RUNNER_TEMP/film-engine.log"; exit 1; fi
+
+      - name: Start the private generation scheduler
+        shell: bash
+        run: |
+          cd services/generation-worker
+          nohup python -m uvicorn api:app --host 127.0.0.1 --port 8002 > "$RUNNER_TEMP/generation-scheduler.log" 2>&1 &
+          ready=false
+          for _ in $(seq 1 60); do
+            if curl --fail --silent -H "X-Cinemesh-Service-Token: $GENERATION_SERVICE_TOKEN" "$GENERATION_SCHEDULER_URL/health" > /dev/null; then ready=true; break; fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then cat "$RUNNER_TEMP/generation-scheduler.log"; exit 1; fi
 
       - name: Start the local web application
         shell: bash

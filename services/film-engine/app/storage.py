@@ -16,6 +16,14 @@ from pathlib import Path
 from .pipeline import STAGES, make_output
 
 
+class FilmRunNotFound(LookupError):
+    pass
+
+
+class RunBindingConflict(ValueError):
+    pass
+
+
 def now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -312,7 +320,7 @@ def advance(film_id, idempotency_key=None):
         _lock_postgres_record(db, f"film:{film_id}")
         film_row = db.execute("SELECT * FROM films WHERE id = ?", (film_id,)).fetchone()
         if film_row is None:
-            raise LookupError("Film not found")
+            raise FilmRunNotFound("Film not found")
         if idempotency_key:
             previous = db.execute("SELECT * FROM checkpoints WHERE film_id = ? AND idempotency_key = ?",
                                   (film_id, idempotency_key)).fetchone()
@@ -380,7 +388,7 @@ def claim_story_editor_run(film_id, run_id, script_segment, binding=None):
         row = db.execute("SELECT * FROM agent_runs WHERE id=?", (run_id,)).fetchone()
         if row:
             if row["film_id"] != film_id or row["agent"] != "cinecrew_full_pipeline" or row["input_hash"] != digest:
-                raise ValueError("Run ID is already bound to different film input")
+                raise RunBindingConflict("Run ID is already bound to different film input")
             if row["status"] == "completed":
                 return {"state": "completed", "run": _agent_run(row)}
             if row["status"] == "running":
@@ -553,8 +561,14 @@ def _offline_planning_stages(configured):
     return stages
 
 
-def run_cinecrew_agents(film_id, run_id, film_idea, film_settings, access_token, model):
-    binding = json.dumps({"film_idea": film_idea, "film_settings": film_settings, "model": model},
+def run_cinecrew_agents(film_id, run_id, film_idea, film_settings, access_token, model, provider="chatgpt_plan"):
+    if provider not in {"chatgpt_plan", "openai_api"}:
+        raise ValueError("Unsupported language provider")
+    binding_data = {"film_idea": film_idea, "film_settings": film_settings, "model": model}
+    # Preserve existing ChatGPT run bindings while fencing new runs to their provider.
+    if provider != "chatgpt_plan":
+        binding_data["provider"] = provider
+    binding = json.dumps(binding_data,
                          ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     claim = claim_story_editor_run(film_id, run_id, film_idea, binding=binding)
     if claim["state"] == "completed":
@@ -572,6 +586,7 @@ def run_cinecrew_agents(film_id, run_id, film_idea, film_settings, access_token,
         from src.pipeline import get_enabled_stages, run_pipeline
         from src.utils.agent_trace import set_trace_output_dir
         from src.utils.chatgpt_plan import chatgpt_plan_session
+        from src.utils.openai_api_session import openai_api_session
         from src.schemas.screenplay import ScreenplayDraft
 
         set_trace_output_dir(run_root / "logs")
@@ -659,7 +674,8 @@ def run_cinecrew_agents(film_id, run_id, film_idea, film_settings, access_token,
             }
             complete_agent_stage_with_checkpoint(run_id, stage_id, snapshot, summary)
 
-        with chatgpt_plan_session(access_token, model):
+        selected_session = chatgpt_plan_session if provider == "chatgpt_plan" else openai_api_session
+        with selected_session(access_token, model):
             if not idea_checkpoint:
                 # Run only the actual configured screenplay writer stage first, then
                 # checkpoint before any downstream stage begins.
@@ -705,7 +721,7 @@ def run_cinecrew_agents(film_id, run_id, film_idea, film_settings, access_token,
             result = {
                 "run_id": run_id,
                 "agent": "CineMeshScreenplayWriter + CineCrew",
-                "provider": "chatgpt_plan",
+                "provider": provider,
                 "model": model,
                 "status": "completed",
                 "screenplay": _jsonable(screenplay),
@@ -724,8 +740,7 @@ def run_cinecrew_agents(film_id, run_id, film_idea, film_settings, access_token,
             return complete_agent_run(film_id, run_id, result)
     except Exception as error:
         # Keep user screenplay and OAuth credentials out of persisted error messages.
-        code = getattr(error, "code", None) or type(error).__name__
-        fail_agent_run(run_id, stage, str(code)[:80])
+        fail_agent_run(run_id, stage, type(error).__name__[:80])
         raise
     finally:
         if heartbeat_stop is not None:

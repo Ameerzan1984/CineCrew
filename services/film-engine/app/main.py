@@ -143,10 +143,12 @@ def get_production_plan(film_id: str):
 def advance_film(film_id: str, payload: AdvanceRequest = AdvanceRequest()):
     try:
         return storage.advance(film_id, payload.idempotency_key)
-    except LookupError as error:
-        raise HTTPException(404, str(error)) from error
+    except storage.FilmRunNotFound as error:
+        raise HTTPException(404, "Film not found") from error
+    except storage.RunBindingConflict as error:
+        raise HTTPException(409, "Run ID is already bound to different film input") from error
     except ValueError as error:
-        raise HTTPException(409, str(error)) from error
+        raise HTTPException(409, "All planning stages are complete") from error
 
 
 @app.post("/films/{film_id}/run")
@@ -169,12 +171,18 @@ def run_cinecrew_story_editor(
     payload: FilmIdeaRunRequest,
     access_token: str = Header(default="", alias="X-ChatGPT-Plan-Access-Token"),
     model: str = Header(default="", alias="X-ChatGPT-Plan-Model"),
+    provider: str = Header(default="chatgpt_plan", alias="X-LLM-Provider"),
+    api_key: str = Header(default="", alias="X-LLM-API-Key"),
 ):
     """Run the user's idea through screenplay writing and the configured CineCrew pipeline."""
-    if len(access_token) < 32 or len(access_token) > 8192:
-        raise HTTPException(401, "A connected ChatGPT plan is required")
+    if provider not in {"chatgpt_plan", "openai_api"}:
+        raise HTTPException(400, "Unsupported language provider")
+    credential = access_token if provider == "chatgpt_plan" else api_key
+    minimum, maximum = (32, 8192) if provider == "chatgpt_plan" else (16, 512)
+    if not minimum <= len(credential) <= maximum:
+        raise HTTPException(401, "The selected language provider is not connected")
     if not model or len(model) > 160:
-        raise HTTPException(400, "Select a model from the connected ChatGPT account")
+        raise HTTPException(400, "Select a model from the connected language provider")
     film = get_film(film_id)
     if film is None:
         raise HTTPException(404, "Film not found")
@@ -186,14 +194,14 @@ def run_cinecrew_story_editor(
         "visual_style": payload.visual_style or film.get("visual_style", "Cinematic"),
     }
     try:
-        result = storage.run_cinecrew_agents(film_id, payload.run_id.lower(), payload.film_idea, film_settings, access_token, model)
-    except LookupError as error:
-        raise HTTPException(404, str(error)) from error
-    except ValueError as error:
-        raise HTTPException(409, str(error)) from error
+        result = storage.run_cinecrew_agents(film_id, payload.run_id.lower(), payload.film_idea, film_settings, credential, model, provider=provider)
+    except storage.FilmRunNotFound as error:
+        raise HTTPException(404, "Film not found") from error
+    except storage.RunBindingConflict as error:
+        raise HTTPException(409, "Run ID is already bound to different film input") from error
     except Exception as error:
         # Provider exception details can contain request data; keep them in local agent traces only.
-        raise HTTPException(502, "CineCrew agent failed. Check the ChatGPT connection and retry the run.") from error
+        raise HTTPException(502, "CineCrew agent failed. Check the selected language provider and retry the run.") from error
     if result["status"] == "running":
         raise HTTPException(409, detail={"message": "This run is already in progress", "run_id": payload.run_id})
     return result
